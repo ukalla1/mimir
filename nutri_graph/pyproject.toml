@@ -1,0 +1,17 @@
+[build-system]
+requires = ["setuptools>=64", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "nutri_graph"
+version = "0.1.0"
+description = "USDA FoodData Central nutrient KB + GAT embeddings"
+readme = "README.md"
+requires-python = ">=3.9"
+
+[tool.setuptools]
+include-package-data = true
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["nutri_graph*"]

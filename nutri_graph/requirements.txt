@@ -1,0 +1,20 @@
+duckdb
+pandas
+numpy
+torch
+torch-geometric
+scikit-learn
+umap-learn
+plotly
+kaleido
+pyvis
+networkx
+tqdm
+matplotlib
+torch_scatter
+torch_sparse
+torch_cluster
+torch_spline_conv -f https://data.pyg.org/whl/torch-2.2.0+cpu.html
+kaggle
+kagglehub
+pyarrow

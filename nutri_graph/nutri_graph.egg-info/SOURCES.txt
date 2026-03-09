@@ -1,0 +1,6 @@
+pyproject.toml
+setup.py
+nutri_graph.egg-info/PKG-INFO
+nutri_graph.egg-info/SOURCES.txt
+nutri_graph.egg-info/dependency_links.txt
+nutri_graph.egg-info/top_level.txt
