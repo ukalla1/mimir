@@ -1,0 +1,16 @@
+[project]
+name = "nutri_rag"
+version = "0.1.0"
+description = "GAT-Embedding RAG for Nutrition Estimation & Personalized Recommendations"
+requires-python = ">=3.9"
+dependencies = [
+    "duckdb",
+    "numpy",
+    "requests",
+    "torch",
+    "scikit-learn",
+]
+
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.backends._legacy:_Backend"
