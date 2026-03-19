@@ -15,6 +15,7 @@ from nutri_rag.config import DB_PATH, KEY_NUTRIENTS, TOP_K_FOODS
 from nutri_rag.embedding import (
     FOOD_SEARCH_INSTRUCTION,
     FoodVectorIndex,
+    GATIndex,
     TextEmbedder,
 )
 
@@ -22,6 +23,7 @@ from nutri_rag.embedding import (
 
 _embedder: TextEmbedder | None = None
 _index: FoodVectorIndex | None = None
+_gat_index: GATIndex | None = None
 _kb_con: duckdb.DuckDBPyConnection | None = None
 
 
@@ -37,6 +39,13 @@ def _get_index() -> FoodVectorIndex:
     if _index is None:
         _index = FoodVectorIndex()
     return _index
+
+
+def _get_gat_index() -> GATIndex:
+    global _gat_index
+    if _gat_index is None:
+        _gat_index = GATIndex()
+    return _gat_index
 
 
 def _get_kb(db_path: str = DB_PATH) -> duckdb.DuckDBPyConnection:
@@ -60,10 +69,15 @@ def search_food(
     query: str,
     k: int = TOP_K_FOODS,
     db_path: str = DB_PATH,
+    use_gat: bool = False,
 ) -> pd.DataFrame:
     """Search for foods matching a text query using semantic vector search.
 
     Returns DataFrame with columns [fdc_id, description].
+
+    Args:
+        use_gat: If True, apply GAT nutritional-similarity re-ranking on top
+                 of text embedding results (V2 pipeline).
 
     The `con` parameter is accepted for backward compatibility but
     the vector search uses its own singletons internally.
@@ -83,8 +97,8 @@ def search_food(
     if not results or not results[0]:
         return pd.DataFrame(columns=["fdc_id", "description"])
 
-    candidates = results[0]  # list of (fdc_id, score)
-    fdc_ids = [fdc_id for fdc_id, _ in candidates]
+    candidates = results[0]  # list of (fdc_id, score, array_idx)
+    fdc_ids = [fdc_id for fdc_id, _, _ in candidates]
 
     # Check which candidates have macronutrient data
     kb = _get_kb(db_path)
@@ -102,9 +116,12 @@ def search_food(
 
     # Build result dataframe
     rows = []
-    for fdc_id, score in candidates:
+    for fdc_id, score, arr_idx in candidates:
         desc = _get_description(fdc_id, db_path)
-        rows.append({"fdc_id": fdc_id, "description": desc, "score": score})
+        rows.append({
+            "fdc_id": fdc_id, "description": desc,
+            "text_score": score, "arr_idx": arr_idx,
+        })
     df = pd.DataFrame(rows)
 
     if df.empty:
@@ -113,10 +130,48 @@ def search_food(
     df = df.merge(macro_counts, on="fdc_id", how="left")
     df["macro_count"] = df["macro_count"].fillna(0)
 
-    # Prefer entries with macros, then by similarity score
-    df = df.sort_values(["macro_count", "score"], ascending=[False, False])
+    if use_gat and len(df) > 1:
+        df = _gat_rerank(df)
+
+    # Prefer entries with macros, then by combined score
+    score_col = "combined_score" if "combined_score" in df.columns else "text_score"
+    df = df.sort_values(["macro_count", score_col], ascending=[False, False])
     df = df.head(k)
     return df[["fdc_id", "description"]].reset_index(drop=True)
+
+
+def _gat_rerank(df: pd.DataFrame, text_weight: float = 0.7) -> pd.DataFrame:
+    """Re-rank text embedding candidates using GAT nutritional similarity.
+
+    Strategy: compute each candidate's average GAT cosine similarity to all
+    other candidates. Candidates that are nutritionally coherent with the
+    group score higher. Combine with text score:
+        combined = text_weight * text_score + (1 - text_weight) * gat_coherence
+    """
+    gat = _get_gat_index()
+    indices = df["arr_idx"].tolist()
+    vecs = gat.get_vectors(indices)  # (n, 64)
+
+    # Pairwise cosine similarity matrix (vectors are already L2-normalized)
+    sim_matrix = vecs @ vecs.T  # (n, n)
+    # Average similarity to all OTHER candidates (exclude self=1.0)
+    n = len(indices)
+    np.fill_diagonal(sim_matrix, 0.0)
+    gat_coherence = sim_matrix.sum(axis=1) / max(n - 1, 1)
+
+    # Normalize gat_coherence to [0, 1] range
+    gat_min, gat_max = gat_coherence.min(), gat_coherence.max()
+    if gat_max > gat_min:
+        gat_coherence = (gat_coherence - gat_min) / (gat_max - gat_min)
+    else:
+        gat_coherence = np.ones(n) * 0.5
+
+    df = df.copy()
+    df["gat_coherence"] = gat_coherence
+    df["combined_score"] = (
+        text_weight * df["text_score"] + (1 - text_weight) * df["gat_coherence"]
+    )
+    return df
 
 
 def get_nutrients(

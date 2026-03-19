@@ -18,32 +18,47 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 NUTRI_RAG_ROOT = os.path.abspath(os.path.join(SCRIPT_DIR, ".."))
 ATLAS_ROOT = os.path.abspath(os.path.join(NUTRI_RAG_ROOT, "..", ".."))  # mimir -> atlas
 LM_EVAL_DIR = os.path.join(ATLAS_ROOT, "qwen_test", "lm-evaluation-harness")
-TASK_SRC = os.path.join(NUTRI_RAG_ROOT, "tasks", "nutribench_v2_rag")
-TASK_DST = os.path.join(LM_EVAL_DIR, "lm_eval", "tasks", "nutribench", "v2", "rag")
+TASK_DIRS = {
+    "v1": {
+        "src": os.path.join(NUTRI_RAG_ROOT, "tasks", "nutribench_v2_rag"),
+        "dst": os.path.join(LM_EVAL_DIR, "lm_eval", "tasks", "nutribench", "v2", "rag"),
+        "task_name": "nutribench_v2_rag",
+    },
+    "v2": {
+        "src": os.path.join(NUTRI_RAG_ROOT, "tasks", "nutribench_v2_rag_gat"),
+        "dst": os.path.join(LM_EVAL_DIR, "lm_eval", "tasks", "nutribench", "v2", "rag_gat"),
+        "task_name": "nutribench_v2_rag_gat",
+    },
+}
+# Backward compat
+TASK_SRC = TASK_DIRS["v1"]["src"]
+TASK_DST = TASK_DIRS["v1"]["dst"]
 
 # Ensure nutri_rag is importable
 sys.path.insert(0, NUTRI_RAG_ROOT)
 sys.path.insert(0, LM_EVAL_DIR)
 
 
-def ensure_task_symlink():
+def ensure_task_symlink(task_src: str = TASK_SRC, task_dst: str = TASK_DST):
     """Create symlink from harness task dir to our RAG task."""
-    if os.path.islink(TASK_DST):
-        current_target = os.readlink(TASK_DST)
-        if current_target == TASK_SRC:
+    if os.path.islink(task_dst):
+        current_target = os.readlink(task_dst)
+        if current_target == task_src:
             return  # already correct
-        os.unlink(TASK_DST)
-    elif os.path.exists(TASK_DST):
-        print(f"Warning: {TASK_DST} exists and is not a symlink. Skipping.")
+        os.unlink(task_dst)
+    elif os.path.exists(task_dst):
+        print(f"Warning: {task_dst} exists and is not a symlink. Skipping.")
         return
 
-    os.makedirs(os.path.dirname(TASK_DST), exist_ok=True)
-    os.symlink(TASK_SRC, TASK_DST)
-    print(f"Symlinked: {TASK_DST} -> {TASK_SRC}")
+    os.makedirs(os.path.dirname(task_dst), exist_ok=True)
+    os.symlink(task_src, task_dst)
+    print(f"Symlinked: {task_dst} -> {task_src}")
 
 
 def main():
     parser = argparse.ArgumentParser(description="Run NutriBench v2 RAG benchmark")
+    parser.add_argument("--mode", choices=["v1", "v2"], default="v1",
+                        help="v1 = text embedding only, v2 = text + GAT re-ranking (default: v1)")
     parser.add_argument("--limit", type=int, default=None,
                         help="Limit number of samples (e.g. 100 for quick test)")
     parser.add_argument("--port", type=int, default=8080,
@@ -56,15 +71,22 @@ def main():
                         help="Output directory for results")
     args = parser.parse_args()
 
+    # Resolve task config for selected mode
+    task_cfg = TASK_DIRS[args.mode]
+    task_src = task_cfg["src"]
+    task_dst = task_cfg["dst"]
+    task_name = task_cfg["task_name"]
+
     # Ensure symlink exists
-    ensure_task_symlink()
+    ensure_task_symlink(task_src, task_dst)
 
     import lm_eval
 
     base_url = f"http://localhost:{args.port}/v1/chat/completions"
     model_args = f"model=qwen3.5-9b,base_url={base_url},num_concurrent={args.concurrent},max_retries={args.max_retries}"
 
-    print(f"==> Running NutriBench v2 RAG benchmark")
+    mode_label = "V1 (text embedding)" if args.mode == "v1" else "V2 (text + GAT)"
+    print(f"==> Running NutriBench v2 RAG benchmark [{mode_label}]")
     print(f"    Server: {base_url}")
     print(f"    Output: {args.output}")
     print(f"    Limit: {args.limit or 'all'}")
@@ -75,12 +97,12 @@ def main():
 
     # Register RAG task via include_path so the task manager discovers it
     from lm_eval.tasks.manager import TaskManager
-    task_manager = TaskManager(include_path=TASK_SRC)
+    task_manager = TaskManager(include_path=task_src)
 
     results = lm_eval.simple_evaluate(
         model="local-chat-completions",
         model_args=model_args,
-        tasks=["nutribench_v2_rag"],
+        tasks=[task_name],
         task_manager=task_manager,
         batch_size=1,
         random_seed=42,
@@ -103,7 +125,7 @@ def main():
     # Save results
     os.makedirs(args.output, exist_ok=True)
     timestamp = datetime.now().strftime("%Y-%m-%dT%H-%M-%S")
-    out_file = os.path.join(args.output, f"results_rag_{timestamp}.json")
+    out_file = os.path.join(args.output, f"results_rag_{args.mode}_{timestamp}.json")
     with open(out_file, "w") as f:
         save_data = {
             "results": results["results"],

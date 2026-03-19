@@ -1,0 +1,2 @@
+task: nutribench_v2_rag_gat
+include: _rag_gat_default_template_yaml

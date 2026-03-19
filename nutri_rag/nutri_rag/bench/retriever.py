@@ -100,14 +100,19 @@ class BenchRetriever:
     Extracts food terms from meal descriptions using regex patterns,
     then searches the USDA database for matching nutrient profiles.
 
+    Args:
+        use_gat: If True, apply GAT nutritional-similarity re-ranking (V2).
+
     Usage::
 
-        retriever = BenchRetriever()
+        retriever = BenchRetriever()              # V1: text embedding only
+        retriever = BenchRetriever(use_gat=True)   # V2: text + GAT re-ranking
         contexts = retriever.retrieve("126g of maize flour and 27g of raw sugar")
     """
 
-    def __init__(self, db_path: str = DB_PATH):
+    def __init__(self, db_path: str = DB_PATH, use_gat: bool = False):
         self._db_path = db_path
+        self._use_gat = use_gat
 
     def retrieve(self, meal_description: str) -> list[FoodContext]:
         """Extract food terms and retrieve nutrient context."""
@@ -118,7 +123,9 @@ class BenchRetriever:
         for term in food_terms:
             ctx = FoodContext(food_term=term)
 
-            df = search_food(None, term, k=1, db_path=self._db_path)
+            df = search_food(
+                None, term, k=1, db_path=self._db_path, use_gat=self._use_gat,
+            )
 
             if len(df) > 0:
                 fdc_id = int(df.iloc[0]["fdc_id"])

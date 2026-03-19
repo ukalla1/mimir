@@ -16,6 +16,7 @@ from torch import Tensor
 from transformers import AutoModel, AutoTokenizer
 
 from nutri_rag.config import (
+    FOOD_EMBEDDINGS_PATH,
     TEXT_EMBEDDING_DIM,
     TEXT_EMBEDDING_MODEL,
     TEXT_EMBEDDINGS_PATH,
@@ -138,7 +139,38 @@ class FoodVectorIndex:
             top_indices = np.argpartition(scores[i], -k)[-k:]
             top_indices = top_indices[np.argsort(scores[i, top_indices])[::-1]]
             results.append([
-                (int(self.fdc_ids[idx]), float(scores[i, idx]))
+                (int(self.fdc_ids[idx]), float(scores[i, idx]), int(idx))
                 for idx in top_indices
             ])
         return results
+
+
+class GATIndex:
+    """Pre-computed GAT embeddings for nutritional similarity re-ranking.
+
+    These 64-dim embeddings are learned from the food-nutrient bipartite graph
+    by nutri_graph's GATv2 model. Foods with similar nutritional profiles are
+    close in this space, regardless of their text descriptions.
+
+    The index ordering matches the DuckDB nodes_food table (same as text embeddings).
+    """
+
+    def __init__(self, embeddings_path: str = FOOD_EMBEDDINGS_PATH):
+        if not os.path.exists(embeddings_path):
+            raise FileNotFoundError(
+                f"GAT embeddings not found at {embeddings_path}. "
+                "Train nutri_graph first."
+            )
+        self.embeddings = np.load(embeddings_path)  # (74175, 64)
+        # L2-normalize for cosine similarity
+        norms = np.linalg.norm(self.embeddings, axis=1, keepdims=True)
+        norms = np.where(norms == 0, 1, norms)
+        self.embeddings = self.embeddings / norms
+
+    def get_vectors(self, indices: list[int]) -> np.ndarray:
+        """Get GAT vectors for given array indices. Returns (len(indices), 64)."""
+        return self.embeddings[indices]
+
+    def cosine_similarity(self, idx_a: int, idx_b: int) -> float:
+        """Cosine similarity between two foods by their array indices."""
+        return float(self.embeddings[idx_a] @ self.embeddings[idx_b])
