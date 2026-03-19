@@ -1,116 +1,58 @@
-"""DuckDB Full-Text Search (BM25) bridge + nutrient lookup.
+"""Semantic vector search + nutrient lookup for RAG retrieval.
 
-Uses DuckDB's built-in FTS extension for proper tokenized matching
-instead of naive LIKE substring search.  Includes confidence filtering
-to reject low-quality matches — it's better to provide no reference
-than a wrong one.
+Uses pre-computed Qwen3-Embedding vectors for cosine similarity search
+instead of BM25 keyword matching. This handles vocabulary mismatches
+like "groundnut" vs "peanut", "maize flour" vs "corn flour", etc.
 """
 
 from __future__ import annotations
 
 import duckdb
+import numpy as np
 import pandas as pd
 
 from nutri_rag.config import DB_PATH, KEY_NUTRIENTS, TOP_K_FOODS
+from nutri_rag.embedding import (
+    FOOD_SEARCH_INSTRUCTION,
+    FoodVectorIndex,
+    TextEmbedder,
+)
 
-# ── Cross-language synonyms ───────────────────────────────────────────
-# Only genuine vocabulary mappings where different English dialects or
-# regions use completely different words for the same food.
-# NOT search hints like "apple" -> "apples, raw".
-SYNONYMS: dict[str, str] = {
-    "groundnut": "peanut",
-    "groundnuts": "peanuts",
-    "maize": "corn",
-    "capsicum": "pepper",
-    "aubergine": "eggplant",
-    "courgette": "zucchini",
-    "coriander": "cilantro",
-    "spring onion": "green onion",
-    "rocket": "arugula",
-    "prawns": "shrimp",
-    "nshima": "cornmeal",
-    "ugali": "cornmeal",
-    "fufu": "cassava",
-    "dhal": "lentils",
-    "dal": "lentils",
-    "porridge": "oatmeal",
-}
+# ── Module-level singletons (lazy init) ──────────────────────────────
 
-# Minimum BM25 score to accept a match.  Below this, we assume the
-# match is unreliable and return nothing (model falls back to its own
-# knowledge, which is the baseline behavior).
-MIN_BM25_SCORE = 1.0
+_embedder: TextEmbedder | None = None
+_index: FoodVectorIndex | None = None
+_kb_con: duckdb.DuckDBPyConnection | None = None
 
 
-class FoodSearcher:
-    """Full-text search over the USDA food database.
-
-    Creates an in-memory FTS index on first use, then reuses it for all
-    subsequent queries.  The original DB is attached read-only for
-    nutrient lookups.
-    """
-
-    def __init__(self, db_path: str = DB_PATH):
-        self._db_path = db_path
-        self._mem: duckdb.DuckDBPyConnection | None = None
-        self._kb: duckdb.DuckDBPyConnection | None = None
-
-    @property
-    def kb(self) -> duckdb.DuckDBPyConnection:
-        """Read-only connection to the original knowledge base."""
-        if self._kb is None:
-            self._kb = duckdb.connect(self._db_path, read_only=True)
-        return self._kb
-
-    @property
-    def mem(self) -> duckdb.DuckDBPyConnection:
-        """In-memory connection with FTS index for search."""
-        if self._mem is None:
-            self._mem = duckdb.connect(":memory:")
-            self._mem.execute("INSTALL fts; LOAD fts;")
-            self._mem.execute(f"""
-                ATTACH '{self._db_path}' AS kb (READ_ONLY);
-                CREATE TABLE foods AS
-                    SELECT fdc_id, description FROM kb.nodes_food;
-                DETACH kb;
-            """)
-            self._mem.execute("""
-                PRAGMA create_fts_index(
-                    'foods', 'fdc_id', 'description',
-                    stemmer='english', lower=true
-                )
-            """)
-        return self._mem
-
-    def close(self):
-        if self._mem is not None:
-            self._mem.close()
-            self._mem = None
-        if self._kb is not None:
-            self._kb.close()
-            self._kb = None
+def _get_embedder() -> TextEmbedder:
+    global _embedder
+    if _embedder is None:
+        _embedder = TextEmbedder()
+    return _embedder
 
 
-def _apply_synonyms(term: str) -> str:
-    """Replace known cross-language aliases."""
-    lower = term.lower().strip()
-    # Longest-prefix match so multi-word synonyms win over single-word
-    for alias in sorted(SYNONYMS, key=len, reverse=True):
-        if alias in lower:
-            lower = lower.replace(alias, SYNONYMS[alias], 1)
-            break
-    return lower
+def _get_index() -> FoodVectorIndex:
+    global _index
+    if _index is None:
+        _index = FoodVectorIndex()
+    return _index
 
 
-# Module-level singleton searcher (lazy init)
-_searcher: FoodSearcher | None = None
+def _get_kb(db_path: str = DB_PATH) -> duckdb.DuckDBPyConnection:
+    global _kb_con
+    if _kb_con is None:
+        _kb_con = duckdb.connect(db_path, read_only=True)
+    return _kb_con
 
 
-def _get_searcher(db_path: str = DB_PATH) -> FoodSearcher:
-    global _searcher
-    if _searcher is None:
-        _searcher = FoodSearcher(db_path)
-    return _searcher
+def _get_description(fdc_id: int, db_path: str = DB_PATH) -> str:
+    """Look up the food description for an fdc_id."""
+    con = _get_kb(db_path)
+    result = con.execute(
+        f"SELECT description FROM nodes_food WHERE fdc_id = {int(fdc_id)}"
+    ).fetchone()
+    return result[0] if result else ""
 
 
 def search_food(
@@ -119,41 +61,35 @@ def search_food(
     k: int = TOP_K_FOODS,
     db_path: str = DB_PATH,
 ) -> pd.DataFrame:
-    """Search for foods matching a text query using BM25 full-text search.
+    """Search for foods matching a text query using semantic vector search.
 
     Returns DataFrame with columns [fdc_id, description].
-    Only returns results above the confidence threshold.
 
-    The `con` parameter is accepted for backward compatibility but the
-    FTS searcher uses its own connections internally.
+    The `con` parameter is accepted for backward compatibility but
+    the vector search uses its own singletons internally.
     """
-    query = _apply_synonyms(query)
-    searcher = _get_searcher(db_path)
+    embedder = _get_embedder()
+    index = _get_index()
 
-    # Escape single quotes for SQL
-    q = query.replace("'", "''")
+    # Encode query with task instruction for better retrieval
+    query_vec = embedder.encode(
+        [query], task_instruction=FOOD_SEARCH_INSTRUCTION
+    )  # (1, dim)
 
-    # Step 1: Get ALL matches above threshold (no hard limit yet)
-    try:
-        df = searcher.mem.execute(f"""
-            SELECT fdc_id, description,
-                   fts_main_foods.match_bm25(fdc_id, '{q}') AS score
-            FROM foods
-            WHERE score IS NOT NULL
-              AND fts_main_foods.match_bm25(fdc_id, '{q}') >= {MIN_BM25_SCORE}
-            ORDER BY score DESC
-        """).df()
-    except Exception:
+    # Retrieve more candidates than needed, then filter by macro data
+    n_candidates = k * 5
+    results = index.search(query_vec, k=n_candidates)
+
+    if not results or not results[0]:
         return pd.DataFrame(columns=["fdc_id", "description"])
 
-    if df.empty:
-        return pd.DataFrame(columns=["fdc_id", "description"])
+    candidates = results[0]  # list of (fdc_id, score)
+    fdc_ids = [fdc_id for fdc_id, _ in candidates]
 
-    # Step 2: Among all confident matches, find those with macronutrient data
-    fdc_ids = df["fdc_id"].tolist()
+    # Check which candidates have macronutrient data
+    kb = _get_kb(db_path)
     placeholders = ", ".join(str(int(fid)) for fid in fdc_ids)
-
-    macro_counts = searcher.kb.execute(f"""
+    macro_counts = kb.execute(f"""
         SELECT e.fdc_id, COUNT(*) AS macro_count
         FROM edges_food_contains_nutrient e
         JOIN nodes_nutrient n USING(nutrient_id)
@@ -164,13 +100,21 @@ def search_food(
         GROUP BY e.fdc_id
     """).df()
 
+    # Build result dataframe
+    rows = []
+    for fdc_id, score in candidates:
+        desc = _get_description(fdc_id, db_path)
+        rows.append({"fdc_id": fdc_id, "description": desc, "score": score})
+    df = pd.DataFrame(rows)
+
+    if df.empty:
+        return pd.DataFrame(columns=["fdc_id", "description"])
+
     df = df.merge(macro_counts, on="fdc_id", how="left")
     df["macro_count"] = df["macro_count"].fillna(0)
-    # Prefer entries with macros, then by BM25 score, then shorter names
-    df = df.sort_values(
-        ["macro_count", "score"], ascending=[False, False]
-    )
 
+    # Prefer entries with macros, then by similarity score
+    df = df.sort_values(["macro_count", "score"], ascending=[False, False])
     df = df.head(k)
     return df[["fdc_id", "description"]].reset_index(drop=True)
 
@@ -185,8 +129,8 @@ def get_nutrients(
 
     Returns dict like {"Carbohydrate, by difference": 13.8, ...}.
     """
-    searcher = _get_searcher(db_path)
-    df = searcher.kb.execute(f"""
+    kb = _get_kb(db_path)
+    df = kb.execute(f"""
         SELECT n.nutrient_name, e.amount
         FROM edges_food_contains_nutrient e
         JOIN nodes_nutrient n USING(nutrient_id)
@@ -212,9 +156,9 @@ def search_by_nutrient_target(
     Returns DataFrame with [fdc_id, description, amount_per_100g].
     Used by assistant mode to find gap-filling foods.
     """
-    searcher = _get_searcher(db_path)
+    kb = _get_kb(db_path)
     nutrient_name_escaped = nutrient_name.replace("'", "''")
-    df = searcher.kb.execute(f"""
+    df = kb.execute(f"""
         SELECT f.fdc_id, f.description,
                e.amount AS amount_per_100g
         FROM nodes_food f
