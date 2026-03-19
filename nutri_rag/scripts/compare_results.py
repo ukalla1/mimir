@@ -59,7 +59,7 @@ def main():
             print(f"Auto-detected baseline: {args.baseline}")
 
     if not args.rag:
-        rag_dir = os.path.join(ATLAS_ROOT, "nutri_rag", "results")
+        rag_dir = os.path.join(ATLAS_ROOT, "mimir", "nutri_rag", "results")
         if os.path.exists(rag_dir):
             candidates = [f for f in os.listdir(rag_dir) if f.startswith("samples_") and f.endswith(".jsonl")]
             if candidates:

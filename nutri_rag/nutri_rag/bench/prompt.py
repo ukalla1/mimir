@@ -35,13 +35,19 @@ def format_nutrient_block(contexts: list[FoodContext]) -> str:
             Carbohydrate: 99.8g | Protein: 0.0g | Fat: 0.0g | Energy: 387 kcal
         ===
     """
-    matched = [c for c in contexts if c.matched]
+    # Only include references that have carbohydrate data
+    matched = [
+        c for c in contexts
+        if c.matched and c.nutrients.get("Carbohydrate, by difference") is not None
+    ]
     if not matched:
         return ""
 
     lines = [
         "=== USDA Nutritional Reference Data (per 100g) ===",
-        "Use these values for your calculations: carbs = (weight_g / 100) * carbs_per_100g",
+        "These are approximate reference values. Use them if they match your food items.",
+        "For foods NOT listed here, use your own nutritional knowledge.",
+        "Formula: carbs = (weight_g / 100) * carbs_per_100g",
         "",
     ]
 

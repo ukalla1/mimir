@@ -16,7 +16,7 @@ from datetime import datetime
 # ── Paths ──────────────────────────────────────────────────────────────
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 NUTRI_RAG_ROOT = os.path.abspath(os.path.join(SCRIPT_DIR, ".."))
-ATLAS_ROOT = os.path.abspath(os.path.join(NUTRI_RAG_ROOT, "..", ".."))
+ATLAS_ROOT = os.path.abspath(os.path.join(NUTRI_RAG_ROOT, "..", ".."))  # mimir -> atlas
 LM_EVAL_DIR = os.path.join(ATLAS_ROOT, "qwen_test", "lm-evaluation-harness")
 TASK_SRC = os.path.join(NUTRI_RAG_ROOT, "tasks", "nutribench_v2_rag")
 TASK_DST = os.path.join(LM_EVAL_DIR, "lm_eval", "tasks", "nutribench", "v2", "rag")
@@ -73,10 +73,15 @@ def main():
     # Change to lm-evaluation-harness dir so task imports resolve
     os.chdir(LM_EVAL_DIR)
 
+    # Register RAG task via include_path so the task manager discovers it
+    from lm_eval.tasks.manager import TaskManager
+    task_manager = TaskManager(include_path=TASK_SRC)
+
     results = lm_eval.simple_evaluate(
         model="local-chat-completions",
         model_args=model_args,
         tasks=["nutribench_v2_rag"],
+        task_manager=task_manager,
         batch_size=1,
         random_seed=42,
         numpy_random_seed=42,

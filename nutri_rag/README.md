@@ -1,6 +1,6 @@
 # nutri_rag — GAT-Embedding RAG for Nutrition Estimation & Personalized Recommendations
 
-RAG (Retrieval-Augmented Generation) system that combines the [nutri_graph](../nutri_graph/) knowledge base (DuckDB + GAT embeddings) with Qwen3.5-9B to improve nutrition estimation and provide personalized meal recommendations.
+RAG (Retrieval-Augmented Generation) system that combines the [nutri_graph](../mimir/nutri_graph/) knowledge base (DuckDB + GAT embeddings) with Qwen3.5-9B to improve nutrition estimation and provide personalized meal recommendations.
 
 ## Two Independent Modes
 
@@ -12,22 +12,26 @@ Improves carbohydrate estimation accuracy by supplying exact USDA per-100g nutri
 meal_description (e.g. "126g of maize flour and 27g of raw sugar")
     |
     v
-[Heuristic Parser] -- split into food items + quantities
-    |
+[Regex Food Term Extraction] -- 3 patterns: "Xg of <food>", "<food> weighing Xg", "<food> (Xg)"
+    |                            strip cooking/prep words (raw, boiled, etc.)
     v
-[DuckDB Text Search] -- text -> fdc_id -> per-100g nutrient profiles
-    |
+[DuckDB BM25 Full-Text Search] -- tokenized matching with confidence threshold
+    |                              cross-language synonyms (groundnut->peanut, maize->corn)
+    |                              re-rank: prefer entries with macronutrient data
+    v
+[Nutrient Lookup] -- per-100g values from DuckDB knowledge base
+    |                 filter: only include references with carbohydrate data
     v
 [Prompt Builder] -- format USDA reference block + CoT prompt
+    |                "Use these if they match. For unlisted foods, use your own knowledge."
+    v
+[Qwen3.5-9B via lm-evaluation-harness] -- single LLM call, greedy decoding
     |
     v
-[Qwen3.5-9B] -- single LLM call
-    |
-    v
-predicted carbohydrates
+predicted carbohydrates (ACC: |pred - gt| < 7.5g, MAE: |pred - gt|)
 ```
 
-**Baseline (no RAG):** 45.08% accuracy, 25.73g MAE (from [qwen_test](../../qwen_test/))
+**Baseline (no RAG):** 45.08% accuracy, 25.73g MAE (from [qwen_test](../qwen_test/))
 
 ### Mode 2: General Nutrition Assistant
 
@@ -65,8 +69,8 @@ Personalized meal recommendations using LLM-driven gap analysis, GAT embedding n
 
 ## Prerequisites
 
-- **nutri_graph** knowledge base built (`../nutri_graph/data/nutri_kb.duckdb` and `../nutri_graph/outputs/embeddings/food_embeddings.npy`). See [nutri_graph README](../nutri_graph/README.md) for setup.
-- **Qwen3.5-9B** — follow the [Unsloth Qwen3.5 guide](https://unsloth.ai/docs/models/qwen3.5#unsloth-studio-guide) to set up llama.cpp and download the GGUF model. See also [qwen_test](../../qwen_test/) for reference.
+- **nutri_graph** knowledge base built (`../mimir/nutri_graph/data/nutri_kb.duckdb` and `../mimir/nutri_graph/outputs/embeddings/food_embeddings.npy`). See [nutri_graph README](../mimir/nutri_graph/README.md) for setup.
+- **Qwen3.5-9B** — follow the [Unsloth Qwen3.5 guide](https://unsloth.ai/docs/models/qwen3.5#unsloth-studio-guide) to set up llama.cpp and download the GGUF model. See also [qwen_test](../qwen_test/) for reference.
 - **Python 3.9+** with dependencies: `duckdb`, `numpy`, `requests`, `torch`, `scikit-learn`
 
 ## Setup
@@ -177,9 +181,11 @@ nutri_rag/
 
   tasks/
     nutribench_v2_rag/         # lm-evaluation-harness task definition
-      rag.yaml
-      _rag_default_template_yaml
-      utils.py                 # doc_to_text_rag() with retrieval
+      rag.yaml                 # Task registration (name: nutribench_v2_rag)
+      _rag_default_template_yaml  # System prompt (CoT instructions + few-shot examples),
+                               #   generation kwargs (temp=0, greedy), metric definitions
+      utils.py                 # doc_to_text_rag(): RAG hook called per sample
+                               # process_results(): extract pred, compute ACC/MAE
 
   scripts/
     start_server.sh            # llama-server for assistant mode (parallel=1)
@@ -197,16 +203,16 @@ nutri_rag/
 | Module | Purpose |
 |--------|---------|
 | `config.py` | Paths to DuckDB, embeddings, LLM endpoint (`localhost:8080`), key nutrient names |
-| `parse.py` | Splits meal text on commas/and/with, extracts quantities+units via regex, strips filler words |
-| `search.py` | Wraps DuckDB search with synonym expansion (e.g., "maize" -> "corn", "oatmeal" -> "oats") and nutrient-aware ranking (prefers entries with macronutrient data) |
+| `parse.py` | Splits meal text on commas/and/with, extracts quantities+units via regex, strips filler words. Used by assistant mode. |
+| `search.py` | DuckDB BM25 full-text search (via FTS extension) with confidence threshold (`MIN_BM25_SCORE = 1.0`), cross-language synonyms (16 entries), and macro-count re-ranking. Returns nothing when confidence is low (model falls back to own knowledge). |
 | `llm.py` | Thin `requests`-based client for OpenAI-compatible `/v1/chat/completions`, with `<think>` tag stripping and robust JSON extraction (handles truncated output) |
 
 ### Mode 1: NutriBench (`bench/`)
 
 | Module | Purpose |
 |--------|---------|
-| `retriever.py` | Parses meal -> searches each food in DuckDB -> gets per-100g nutrient profiles. No GAT. |
-| `prompt.py` | Formats nutrients into a `=== USDA Nutritional Reference Data ===` block injected before the query |
+| `retriever.py` | Extracts food terms from meal descriptions via 3 regex patterns (handles "Xg of food", "food weighing Xg", "food (Xg)"), strips cooking/prep words, then searches DuckDB + gets per-100g nutrients. No GAT, no heuristic parser. |
+| `prompt.py` | Formats nutrients into a `=== USDA Nutritional Reference Data ===` block. Filters out entries without carb data. Instructs model to use own knowledge for unlisted foods. |
 
 ### Mode 2: General Assistant (`assistant/`)
 
@@ -220,15 +226,39 @@ nutri_rag/
 
 ## How It Works
 
-### Parser Example
+### Benchmark Food Term Extraction
+
+The benchmark retriever uses regex patterns (not the heuristic parser) to extract food terms from NutriBench meal descriptions:
+
+```
+Input:  "126 grams of raw maize flour and 27 grams of raw sugar"
+Terms:  ["maize flour", "sugar"]          (Pattern A: "Xg of <food>", strip "raw")
+
+Input:  "a plain bun weighing 126 grams"
+Terms:  ["bun"]                            (Pattern B: "<food> weighing Xg", strip "plain")
+
+Input:  "a boiled large onion (1g)"
+Terms:  ["onion"]                          (Pattern C: "<food> (Xg)", strip "boiled large")
+```
+
+### Search Confidence & Fallback
+
+The BM25 confidence threshold ensures RAG only helps, never hurts:
+
+```
+"maize flour"  → BM25 score 3.2 ✓ → "Flour, corn, yellow" (carb: 80.8g)  → included
+"groundnuts"   → synonym → "peanuts" → BM25 score 2.1 ✓ → "Peanuts, raw" → included
+"bun"          → BM25 score < 1.0 ✗ → no match → model uses own knowledge (= baseline)
+"sugarcane"    → no FTS hits → no match → model uses own knowledge (= baseline)
+```
+
+### Assistant Parser Example
+
+The assistant mode uses the heuristic parser (different from benchmark):
 
 ```
 Input:  "I ate an apple and milk for breakfast"
 Output: [ParsedItem(food_term="apple"), ParsedItem(food_term="milk")]
-
-Input:  "126 grams of maize flour and 27 grams of raw sugar"
-Output: [ParsedItem(food_term="maize flour", quantity=126, unit="g"),
-         ParsedItem(food_term="raw sugar", quantity=27, unit="g")]
 ```
 
 ### GAT Embedding Neighbor Expansion
