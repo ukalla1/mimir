@@ -133,21 +133,52 @@ def search_food(
     if use_gat and len(df) > 1:
         df = _gat_rerank(df)
 
-    # Prefer entries with macros, then by combined score
-    score_col = "combined_score" if "combined_score" in df.columns else "text_score"
+    # Prefer entries with macros, then by score
+    score_col = "text_score"
+    if "combined_score" in df.columns and df["combined_score"].notna().any():
+        score_col = "combined_score"
     df = df.sort_values(["macro_count", score_col], ascending=[False, False])
     df = df.head(k)
     return df[["fdc_id", "description"]].reset_index(drop=True)
 
 
-def _gat_rerank(df: pd.DataFrame, text_weight: float = 0.7) -> pd.DataFrame:
+GAT_AMBIGUITY_THRESHOLD = 0.03  # min gap between unique descriptions to skip GAT
+
+
+def _gat_rerank(
+    df: pd.DataFrame,
+    text_weight: float = 0.7,
+    ambiguity_threshold: float = GAT_AMBIGUITY_THRESHOLD,
+) -> pd.DataFrame:
     """Re-rank text embedding candidates using GAT nutritional similarity.
 
-    Strategy: compute each candidate's average GAT cosine similarity to all
-    other candidates. Candidates that are nutritionally coherent with the
-    group score higher. Combine with text score:
-        combined = text_weight * text_score + (1 - text_weight) * gat_coherence
+    Only applies GAT when the text embedding is ambiguous — i.e., the gap
+    between the best and second-best *unique food descriptions* is small.
+    This ignores USDA duplicates (same description, different fdc_id) when
+    measuring confidence, so duplicates don't fool the threshold.
+
+    When the text match is confident, GAT stays out of the way to avoid
+    overriding a good match with a nutritionally-similar but wrong entry.
     """
+    # Measure gap between top-1 and first genuinely different description
+    seen_descs: dict[str, float] = {}
+    for _, row in df.sort_values("text_score", ascending=False).iterrows():
+        desc = row["description"]
+        if desc not in seen_descs:
+            seen_descs[desc] = row["text_score"]
+        if len(seen_descs) >= 2:
+            break
+
+    unique_scores = list(seen_descs.values())
+    gap = unique_scores[0] - unique_scores[1] if len(unique_scores) > 1 else 1.0
+
+    if gap >= ambiguity_threshold:
+        # Text embedding is confident — skip GAT, just use text_score
+        df = df.copy()
+        df["combined_score"] = df["text_score"]
+        return df
+
+    # Text embedding is ambiguous — apply GAT re-ranking
     gat = _get_gat_index()
     indices = df["arr_idx"].tolist()
     vecs = gat.get_vectors(indices)  # (n, 64)

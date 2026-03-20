@@ -19,6 +19,11 @@ NUTRI_RAG_ROOT = os.path.abspath(os.path.join(SCRIPT_DIR, ".."))
 ATLAS_ROOT = os.path.abspath(os.path.join(NUTRI_RAG_ROOT, "..", ".."))  # mimir -> atlas
 LM_EVAL_DIR = os.path.join(ATLAS_ROOT, "qwen_test", "lm-evaluation-harness")
 TASK_DIRS = {
+    "v0": {
+        "src": os.path.join(NUTRI_RAG_ROOT, "tasks", "nutribench_v2_rag_bm25"),
+        "dst": os.path.join(LM_EVAL_DIR, "lm_eval", "tasks", "nutribench", "v2", "rag_bm25"),
+        "task_name": "nutribench_v2_rag_bm25",
+    },
     "v1": {
         "src": os.path.join(NUTRI_RAG_ROOT, "tasks", "nutribench_v2_rag"),
         "dst": os.path.join(LM_EVAL_DIR, "lm_eval", "tasks", "nutribench", "v2", "rag"),
@@ -57,8 +62,8 @@ def ensure_task_symlink(task_src: str = TASK_SRC, task_dst: str = TASK_DST):
 
 def main():
     parser = argparse.ArgumentParser(description="Run NutriBench v2 RAG benchmark")
-    parser.add_argument("--mode", choices=["v1", "v2"], default="v1",
-                        help="v1 = text embedding only, v2 = text + GAT re-ranking (default: v1)")
+    parser.add_argument("--mode", choices=["v0", "v1", "v2"], default="v1",
+                        help="v0 = BM25 keyword, v1 = text embedding, v2 = text + GAT (default: v1)")
     parser.add_argument("--limit", type=int, default=None,
                         help="Limit number of samples (e.g. 100 for quick test)")
     parser.add_argument("--port", type=int, default=8080,
@@ -85,7 +90,8 @@ def main():
     base_url = f"http://localhost:{args.port}/v1/chat/completions"
     model_args = f"model=qwen3.5-9b,base_url={base_url},num_concurrent={args.concurrent},max_retries={args.max_retries}"
 
-    mode_label = "V1 (text embedding)" if args.mode == "v1" else "V2 (text + GAT)"
+    mode_labels = {"v0": "V0 (BM25 keyword)", "v1": "V1 (text embedding)", "v2": "V2 (text + GAT)"}
+    mode_label = mode_labels[args.mode]
     print(f"==> Running NutriBench v2 RAG benchmark [{mode_label}]")
     print(f"    Server: {base_url}")
     print(f"    Output: {args.output}")

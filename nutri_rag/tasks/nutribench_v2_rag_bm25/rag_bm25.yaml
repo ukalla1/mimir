@@ -1,0 +1,2 @@
+task: nutribench_v2_rag_bm25
+include: _rag_bm25_default_template_yaml
