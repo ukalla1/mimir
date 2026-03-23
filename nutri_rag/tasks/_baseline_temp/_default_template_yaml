@@ -37,7 +37,7 @@ description: |
   So the total energy in the meal = 188
   Output: {"total_energy": 188}
 
-doc_to_text:  !function utils.doc_to_text_rag
+doc_to_text:  !function utils.doc_to_text_cot
 doc_to_target: 0
 process_results: !function utils.process_results
 
@@ -54,7 +54,6 @@ metric_list:
   - metric: mae
     aggregation: mean
     higher_is_better: true
-
 
 metadata:
   version: 1.0

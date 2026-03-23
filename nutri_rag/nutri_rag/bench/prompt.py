@@ -6,6 +6,8 @@ keeping the original CoT few-shot examples and system prompt intact.
 
 from __future__ import annotations
 
+import os
+
 from nutri_rag.bench.retriever import FoodContext
 
 
@@ -19,27 +21,45 @@ _DISPLAY = {
 # Energy keys in preference order (DB stores under different names)
 _ENERGY_KEYS = ["Energy", "Energy (Atwater General Factors)", "Energy (Atwater Specific Factors)"]
 
+# Which DB nutrient key is required for each target nutrient
+_REQUIRED_NUTRIENT = {
+    "carb": "Carbohydrate, by difference",
+    "protein": "Protein",
+    "fat": "Total lipid (fat)",
+    "energy": None,  # energy uses a separate lookup
+}
 
-def format_nutrient_block(contexts: list[FoodContext]) -> str:
+# Formula line per nutrient
+_FORMULA = {
+    "carb": "Formula: carbs = (weight_g / 100) * carbs_per_100g",
+    "protein": "Formula: protein = (weight_g / 100) * protein_per_100g",
+    "fat": "Formula: fat = (weight_g / 100) * fat_per_100g",
+    "energy": "Formula: energy = (weight_g / 100) * energy_per_100g",
+}
+
+
+def format_nutrient_block(contexts: list[FoodContext], nutrient: str | None = None) -> str:
     """Build the USDA reference block from retrieved food contexts.
 
-    Example output::
-
-        === USDA Nutritional Reference Data (per 100g) ===
-        Use these values for your calculations: carbs = (weight_g / 100) * carbs_per_100g
-
-        [1] "Corn flour, whole-grain, yellow" (USDA #170285)
-            Carbohydrate: 76.9g | Protein: 6.9g | Fat: 3.9g | Energy: 361 kcal
-
-        [2] "Sugars, granulated" (USDA #169655)
-            Carbohydrate: 99.8g | Protein: 0.0g | Fat: 0.0g | Energy: 387 kcal
-        ===
+    Parameters
+    ----------
+    contexts : list of FoodContext
+    nutrient : target nutrient (default: NUTRI_TARGET env var or "carb")
     """
-    # Only include references that have carbohydrate data
-    matched = [
-        c for c in contexts
-        if c.matched and c.nutrients.get("Carbohydrate, by difference") is not None
-    ]
+    nutrient = nutrient or os.environ.get("NUTRI_TARGET", "carb")
+
+    # Filter: only include references that have the target nutrient data
+    required_key = _REQUIRED_NUTRIENT.get(nutrient)
+
+    def _has_target(ctx):
+        if not ctx.matched:
+            return False
+        if required_key:
+            return ctx.nutrients.get(required_key) is not None
+        # For energy, check any energy key
+        return any(ctx.nutrients.get(ek) is not None for ek in _ENERGY_KEYS)
+
+    matched = [c for c in contexts if _has_target(c)]
     if not matched:
         return ""
 
@@ -47,7 +67,7 @@ def format_nutrient_block(contexts: list[FoodContext]) -> str:
         "=== USDA Nutritional Reference Data (per 100g) ===",
         "These are approximate reference values. Use them if they match your food items.",
         "For foods NOT listed here, use your own nutritional knowledge.",
-        "Formula: carbs = (weight_g / 100) * carbs_per_100g",
+        _FORMULA.get(nutrient, _FORMULA["carb"]),
         "",
     ]
 
