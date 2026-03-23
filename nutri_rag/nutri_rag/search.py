@@ -76,8 +76,8 @@ def search_food(
     Returns DataFrame with columns [fdc_id, description].
 
     Args:
-        use_gat: If True, apply GAT nutritional-similarity re-ranking on top
-                 of text embedding results (V2 pipeline).
+        use_gat: If True, apply GAT expansion — find nutritionally similar
+                 neighbors of text candidates to expand the search pool (V2).
 
     The `con` parameter is accepted for backward compatibility but
     the vector search uses its own singletons internally.
@@ -98,21 +98,6 @@ def search_food(
         return pd.DataFrame(columns=["fdc_id", "description"])
 
     candidates = results[0]  # list of (fdc_id, score, array_idx)
-    fdc_ids = [fdc_id for fdc_id, _, _ in candidates]
-
-    # Check which candidates have macronutrient data
-    kb = _get_kb(db_path)
-    placeholders = ", ".join(str(int(fid)) for fid in fdc_ids)
-    macro_counts = kb.execute(f"""
-        SELECT e.fdc_id, COUNT(*) AS macro_count
-        FROM edges_food_contains_nutrient e
-        JOIN nodes_nutrient n USING(nutrient_id)
-        WHERE e.fdc_id IN ({placeholders})
-          AND n.nutrient_name IN (
-              'Carbohydrate, by difference', 'Protein', 'Total lipid (fat)'
-          )
-        GROUP BY e.fdc_id
-    """).df()
 
     # Build result dataframe
     rows = []
@@ -127,82 +112,106 @@ def search_food(
     if df.empty:
         return pd.DataFrame(columns=["fdc_id", "description"])
 
+    if use_gat and len(df) > 1:
+        df = _gat_expand(df, query_vec, index, db_path)
+
+    # Look up macro counts for all candidates in current pool
+    all_fdc_ids = df["fdc_id"].tolist()
+    macro_counts = _get_macro_counts(all_fdc_ids, db_path)
     df = df.merge(macro_counts, on="fdc_id", how="left")
     df["macro_count"] = df["macro_count"].fillna(0)
 
-    if use_gat and len(df) > 1:
-        df = _gat_rerank(df)
-
-    # Prefer entries with macros, then by score
-    score_col = "text_score"
-    if "combined_score" in df.columns and df["combined_score"].notna().any():
-        score_col = "combined_score"
-    df = df.sort_values(["macro_count", score_col], ascending=[False, False])
+    # Prefer entries with macros, then by text score
+    df = df.sort_values(["macro_count", "text_score"], ascending=[False, False])
     df = df.head(k)
-    return df[["fdc_id", "description"]].reset_index(drop=True)
+    return df[["fdc_id", "description", "text_score"]].reset_index(drop=True)
 
 
-GAT_AMBIGUITY_THRESHOLD = 0.03  # min gap between unique descriptions to skip GAT
+def _get_macro_counts(fdc_ids: list[int], db_path: str = DB_PATH) -> pd.DataFrame:
+    """Count how many macronutrients (carb/protein/fat) each food has."""
+    if not fdc_ids:
+        return pd.DataFrame(columns=["fdc_id", "macro_count"])
+    kb = _get_kb(db_path)
+    placeholders = ", ".join(str(int(fid)) for fid in fdc_ids)
+    return kb.execute(f"""
+        SELECT e.fdc_id, COUNT(*) AS macro_count
+        FROM edges_food_contains_nutrient e
+        JOIN nodes_nutrient n USING(nutrient_id)
+        WHERE e.fdc_id IN ({placeholders})
+          AND n.nutrient_name IN (
+              'Carbohydrate, by difference', 'Protein', 'Total lipid (fat)'
+          )
+        GROUP BY e.fdc_id
+    """).df()
 
 
-def _gat_rerank(
+# ── GAT Expansion parameters ─────────────────────────────────────────
+
+GAT_N_UNIQUE = 5          # number of unique text candidates to expand
+GAT_NEIGHBORS_PER = 5     # GAT neighbors per unique candidate
+
+
+def _gat_expand(
     df: pd.DataFrame,
-    text_weight: float = 0.7,
-    ambiguity_threshold: float = GAT_AMBIGUITY_THRESHOLD,
+    query_vec: np.ndarray,
+    index: FoodVectorIndex,
+    db_path: str = DB_PATH,
+    n_unique: int = GAT_N_UNIQUE,
+    gat_neighbors: int = GAT_NEIGHBORS_PER,
 ) -> pd.DataFrame:
-    """Re-rank text embedding candidates using GAT nutritional similarity.
+    """Expand text candidates with GAT nutritional neighbors, then re-score.
 
-    Only applies GAT when the text embedding is ambiguous — i.e., the gap
-    between the best and second-best *unique food descriptions* is small.
-    This ignores USDA duplicates (same description, different fdc_id) when
-    measuring confidence, so duplicates don't fool the threshold.
-
-    When the text match is confident, GAT stays out of the way to avoid
-    overriding a good match with a nutritionally-similar but wrong entry.
+    Pipeline:
+    1. Dedup text candidates by description → top-N unique
+    2. For each unique candidate, find M GAT neighbors
+    3. Collect all neighbors into expanded pool (keep all, no dedup)
+    4. Re-score neighbors against original query using text embedding
+    5. Return combined pool (original + neighbors) with text scores
     """
-    # Measure gap between top-1 and first genuinely different description
-    seen_descs: dict[str, float] = {}
-    for _, row in df.sort_values("text_score", ascending=False).iterrows():
-        desc = row["description"]
-        if desc not in seen_descs:
-            seen_descs[desc] = row["text_score"]
-        if len(seen_descs) >= 2:
-            break
+    gat = _get_gat_index()
 
-    unique_scores = list(seen_descs.values())
-    gap = unique_scores[0] - unique_scores[1] if len(unique_scores) > 1 else 1.0
+    # Step 1: dedup by description, keep top-N unique
+    unique_df = df.sort_values("text_score", ascending=False).drop_duplicates(
+        subset="description"
+    ).head(n_unique)
 
-    if gap >= ambiguity_threshold:
-        # Text embedding is confident — skip GAT, just use text_score
-        df = df.copy()
-        df["combined_score"] = df["text_score"]
+    # Step 2: for each unique candidate, find GAT neighbors
+    existing_indices = set(df["arr_idx"].tolist())
+    neighbor_rows = []
+
+    for _, row in unique_df.iterrows():
+        neighbors = gat.neighbors(int(row["arr_idx"]), k=gat_neighbors)
+        for neigh_idx, gat_sim in neighbors:
+            if neigh_idx not in existing_indices:
+                neighbor_rows.append({
+                    "arr_idx": neigh_idx,
+                    "gat_sim": gat_sim,
+                    "parent_desc": row["description"],
+                })
+
+    if not neighbor_rows:
+        # No new neighbors found — return original df unchanged
         return df
 
-    # Text embedding is ambiguous — apply GAT re-ranking
-    gat = _get_gat_index()
-    indices = df["arr_idx"].tolist()
-    vecs = gat.get_vectors(indices)  # (n, 64)
+    # Step 3: look up fdc_id and description for each neighbor
+    for nr in neighbor_rows:
+        nr["fdc_id"] = int(index.fdc_ids[nr["arr_idx"]])
+        nr["description"] = _get_description(nr["fdc_id"], db_path)
 
-    # Pairwise cosine similarity matrix (vectors are already L2-normalized)
-    sim_matrix = vecs @ vecs.T  # (n, n)
-    # Average similarity to all OTHER candidates (exclude self=1.0)
-    n = len(indices)
-    np.fill_diagonal(sim_matrix, 0.0)
-    gat_coherence = sim_matrix.sum(axis=1) / max(n - 1, 1)
+    # Step 4: compute text similarity for neighbors against original query
+    neighbor_indices = [nr["arr_idx"] for nr in neighbor_rows]
+    neighbor_vecs = index.embeddings[neighbor_indices]  # (M, dim)
+    text_scores = (query_vec @ neighbor_vecs.T).flatten()  # (M,)
 
-    # Normalize gat_coherence to [0, 1] range
-    gat_min, gat_max = gat_coherence.min(), gat_coherence.max()
-    if gat_max > gat_min:
-        gat_coherence = (gat_coherence - gat_min) / (gat_max - gat_min)
-    else:
-        gat_coherence = np.ones(n) * 0.5
+    for nr, score in zip(neighbor_rows, text_scores):
+        nr["text_score"] = float(score)
 
-    df = df.copy()
-    df["gat_coherence"] = gat_coherence
-    df["combined_score"] = (
-        text_weight * df["text_score"] + (1 - text_weight) * df["gat_coherence"]
-    )
-    return df
+    # Step 5: combine original candidates + neighbors
+    neighbor_df = pd.DataFrame(neighbor_rows)[["fdc_id", "description", "text_score", "arr_idx"]]
+    combined = pd.concat([df[["fdc_id", "description", "text_score", "arr_idx"]], neighbor_df],
+                         ignore_index=True)
+
+    return combined
 
 
 def get_nutrients(

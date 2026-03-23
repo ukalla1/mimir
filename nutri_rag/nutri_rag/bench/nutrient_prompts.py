@@ -9,7 +9,10 @@ import os
 
 # ── Nutrient configuration ────────────────────────────────────────────
 
-NUTRI_TARGET = os.environ.get("NUTRI_TARGET", "carb")
+
+def _get_target():
+    """Read NUTRI_TARGET at call time, not import time."""
+    return os.environ.get("NUTRI_TARGET", "carb")
 
 NUTRIENT_CONFIG = {
     "carb": {
@@ -194,7 +197,7 @@ _EXAMPLES = {
 
 def get_nutrient_config(nutrient: str | None = None) -> dict:
     """Return the config dict for the given nutrient (default: NUTRI_TARGET env)."""
-    nutrient = nutrient or NUTRI_TARGET
+    nutrient = nutrient or _get_target()
     if nutrient not in NUTRIENT_CONFIG:
         raise ValueError(f"Unknown nutrient: {nutrient!r}. Valid: {list(NUTRIENT_CONFIG)}")
     return NUTRIENT_CONFIG[nutrient]
@@ -202,7 +205,7 @@ def get_nutrient_config(nutrient: str | None = None) -> dict:
 
 def build_system_prompt(nutrient: str | None = None) -> str:
     """Build the CoT system prompt for the given nutrient."""
-    nutrient = nutrient or NUTRI_TARGET
+    nutrient = nutrient or _get_target()
     cfg = get_nutrient_config(nutrient)
     examples = _EXAMPLES[nutrient]
 

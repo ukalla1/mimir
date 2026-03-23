@@ -174,3 +174,15 @@ class GATIndex:
     def cosine_similarity(self, idx_a: int, idx_b: int) -> float:
         """Cosine similarity between two foods by their array indices."""
         return float(self.embeddings[idx_a] @ self.embeddings[idx_b])
+
+    def neighbors(self, idx: int, k: int = 5) -> list[tuple[int, float]]:
+        """Find k nearest GAT neighbors (nutritionally similar foods).
+
+        Returns list of (array_idx, cosine_similarity), excluding self.
+        """
+        sims = self.embeddings[idx] @ self.embeddings.T  # (N,)
+        # Get top-(k+1) to account for self
+        top_k = np.argpartition(sims, -(k + 1))[-(k + 1):]
+        top_k = top_k[top_k != idx]  # remove self
+        top_k = top_k[np.argsort(sims[top_k])[::-1]][:k]
+        return [(int(i), float(sims[i])) for i in top_k]

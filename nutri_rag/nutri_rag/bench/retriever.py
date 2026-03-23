@@ -24,6 +24,7 @@ class FoodContext:
     description: str | None = None
     nutrients: dict[str, float] = field(default_factory=dict)
     matched: bool = False
+    similarity_score: float = 0.0
 
 
 # Pattern A: "<qty> g/grams of <food>"  — most common NutriBench format
@@ -136,6 +137,7 @@ class BenchRetriever:
 
                 ctx.fdc_id = fdc_id
                 ctx.description = df.iloc[0]["description"]
+                ctx.similarity_score = float(df.iloc[0].get("text_score", 0.0))
                 ctx.nutrients = get_nutrients(
                     None, ctx.fdc_id, key_only=True, db_path=self._db_path
                 )

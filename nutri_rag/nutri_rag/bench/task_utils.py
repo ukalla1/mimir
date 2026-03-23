@@ -9,13 +9,17 @@ import re
 
 from nutri_rag.bench.nutrient_prompts import get_nutrient_config
 
-_NUTRI_TARGET = os.environ.get("NUTRI_TARGET", "carb")
+
+def _get_target():
+    """Read NUTRI_TARGET at call time, not import time."""
+    return os.environ.get("NUTRI_TARGET", "carb")
 
 
 def process_results(doc, results):
-    cfg = get_nutrient_config(_NUTRI_TARGET)
+    target = _get_target()
+    cfg = get_nutrient_config(target)
     candidates = results[0]
-    pred = clean_output(candidates, doc["meal_description"], "cot", _NUTRI_TARGET)
+    pred = clean_output(candidates, doc["meal_description"], "cot", target)
     gt = doc[cfg["gt_column"]]
     mae = abs(pred - gt)
 
