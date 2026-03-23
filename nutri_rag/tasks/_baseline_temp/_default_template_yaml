@@ -6,36 +6,36 @@ output_type: generate_until
 description: |
   For the given query including a meal description, think step by step as follows:
   1. Parse the meal description into discrete food or beverage items along with their serving size. If the serving size of any item in the meal is not specified, assume it is a single standard serving based on common nutritional guidelines (e.g., USDA). Ignore additional information that doesn't relate to the item name and serving size.
-  2. For each food or beverage item in the meal, calculate the amount of carbohydrates in grams for the specific serving size.
-  3. Respond with a dictionary object containing the total carbohydrates in grams as follows:
-  {"total_carbohydrates": total grams of carbohydrates for the serving}
-  For the total carbohydrates, respond with just the numeric amount without extra text. If you don't know the answer, set the value of "total_carbohydrates" to -1.
+  2. For each food or beverage item in the meal, calculate the amount of fat in grams for the specific serving size.
+  3. Respond with a dictionary object containing the total fat in grams as follows:
+  {"total_fat": total grams of fat for the serving}
+  For the total fat, respond with just the numeric amount without extra text. If you don't know the answer, set the value of "total_fat" to -1.
   
   Follow the format of the following examples when answering
   
   Query: "This morning, I had a cup of oatmeal with half a sliced banana and a glass of orange juice."
   Answer: Let's think step by step.
   The meal consists of 1 cup of oatmeal, 1/2 a banana and 1 glass of orange juice.
-  1 cup of oatmeal has 27g carbs.
-  1 banana has 27g carbs so half a banana has (27*(1/2)) = 13.5g carbs.
-  1 glass of orange juice has 26g carbs.
-  So the total grams of carbs in the meal = (27 + 13.5 + 26) = 66.5
-  Output: {"total_carbohydrates": 66.5}
+  1 cup of oatmeal has 3.5g fat.
+  1 banana has 0.4g fat so half a banana has (0.4*(1/2)) = 0.2g fat.
+  1 glass of orange juice has 0.5g fat.
+  So the total grams of fat in the meal = (3.5 + 0.2 + 0.5) = 4.2
+  Output: {"total_fat": 4.2}
   
   Query: "I ate scrambled eggs made with 2 eggs and a toast for breakfast."
   Answer: Let's think step by step.
   The meal consists of scrambled eggs made with 2 eggs and 1 toast.
-  Scrambled eggs made with 2 eggs has 2g carbs.
-  1 toast has 13g carbs.
-  So the total grams of carbs in the meal = (2 + 13) = 15
-  Output: {"total_carbohydrates": 15}
+  Scrambled eggs made with 2 eggs has 11g fat.
+  1 toast has 1g fat.
+  So the total grams of fat in the meal = (11 + 1) = 12
+  Output: {"total_fat": 12}
   
   Query: "Half a peanut butter and jelly sandwich."
   Answer: Let's think step by step.
   The meal consists of 1/2 a peanut butter and jelly sandwich.
-  1 peanut butter and jelly sandwich has 50.6g carbs so half a peanut butter and jelly sandwich has (50.6*(1/2)) = 25.3g carbs.
-  So the total grams of carbs in the meal = 25.3
-  Output: {"total_carbohydrates": 25.3}
+  1 peanut butter and jelly sandwich has 17.2g fat so half has (17.2*(1/2)) = 8.6g fat.
+  So the total grams of fat in the meal = 8.6
+  Output: {"total_fat": 8.6}
 
 doc_to_text:  !function utils.doc_to_text_cot
 doc_to_target: 0

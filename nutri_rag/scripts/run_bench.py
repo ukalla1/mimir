@@ -43,12 +43,6 @@ TASK_DIRS = {
         "task_name": "nutribench_v2_rag_gat",
         "template_name": "_rag_gat_default_template_yaml",
     },
-    "v3": {
-        "src": os.path.join(NUTRI_RAG_ROOT, "tasks", "nutribench_v2_rag_v3"),
-        "dst": os.path.join(LM_EVAL_DIR, "lm_eval", "tasks", "nutribench", "v2", "rag_v3"),
-        "task_name": "nutribench_v2_rag_v3",
-        "template_name": "_rag_v3_default_template_yaml",
-    },
 }
 
 # Ensure nutri_rag is importable
@@ -117,8 +111,8 @@ def ensure_task_symlink(task_src: str, task_dst: str):
 
 def main():
     parser = argparse.ArgumentParser(description="Run NutriBench v2 RAG benchmark")
-    parser.add_argument("--mode", choices=["v0", "v1", "v2", "v3"], default="v1",
-                        help="v0 = BM25, v1 = dense, v2 = dense+GAT, v3 = dense+threshold (default: v1)")
+    parser.add_argument("--mode", choices=["v0", "v1", "v2"], default="v1",
+                        help="v0 = BM25 keyword, v1 = text embedding, v2 = text + GAT (default: v1)")
     parser.add_argument("--nutrient", choices=["carb", "protein", "fat", "energy"], default="carb",
                         help="Target nutrient to evaluate (default: carb)")
     parser.add_argument("--limit", type=int, default=None,
@@ -154,7 +148,7 @@ def main():
     base_url = f"http://localhost:{args.port}/v1/chat/completions"
     model_args = f"model=qwen3.5-9b,base_url={base_url},num_concurrent={args.concurrent},max_retries={args.max_retries}"
 
-    mode_labels = {"v0": "V0 (BM25)", "v1": "V1 (Dense)", "v2": "V2 (Dense+GAT)", "v3": "V3 (Dense+Threshold)"}
+    mode_labels = {"v0": "V0 (BM25)", "v1": "V1 (Dense)", "v2": "V2 (Dense+GAT)"}
     mode_label = mode_labels[args.mode]
     print(f"==> Running NutriBench v2 RAG benchmark [{mode_label}] [nutrient: {args.nutrient}]")
     print(f"    Server: {base_url}")

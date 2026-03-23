@@ -25,8 +25,8 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 NUTRI_RAG_ROOT = os.path.abspath(os.path.join(SCRIPT_DIR, ".."))
 
 ALL_NUTRIENTS = ["carb", "protein", "fat", "energy"]
-ALL_MODES = ["baseline", "v0", "v1", "v2", "v3"]
-RAG_MODES = ["v0", "v1", "v2", "v3"]
+ALL_MODES = ["baseline", "v0", "v1", "v2"]
+RAG_MODES = ["v0", "v1", "v2"]
 
 
 def run_single(mode, nutrient, limit, port):
