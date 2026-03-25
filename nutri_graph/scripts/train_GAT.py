@@ -26,11 +26,14 @@ def ensure_dirs():
 if __name__ == "__main__":
     ensure_dirs()
 
-    data, meta = build_graph_from_db("data/nutri_kb.duckdb")
+    data, meta = build_graph_from_db(
+        "data/nutri_kb.duckdb",
+        include_recipes=Config.INCLUDE_RECIPES,
+    )
 
     model = GATFrontEnd(
         num_nodes=data.num_nodes,
-        num_types=2,
+        num_types=meta["NUM_TYPES"],
         emb_dim=Config.EMB_DIM,
         hidden=Config.HIDDEN,
         heads=Config.HEADS,
