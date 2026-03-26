@@ -1,9 +1,9 @@
-"""Baseline (no RAG) NutriBench task utilities — energy."""
+"""Baseline (no RAG) NutriBench task utilities — protein."""
 
 import sys
 import os
 
-os.environ["NUTRI_TARGET"] = "energy"
+os.environ["NUTRI_TARGET"] = "protein"
 
 _NUTRI_RAG_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 if _NUTRI_RAG_ROOT not in sys.path:

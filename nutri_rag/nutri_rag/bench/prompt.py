@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import os
 
-from nutri_rag.bench.retriever import FoodContext
+from nutri_rag.bench.retriever import FoodCandidate, FoodContext
 from nutri_rag.config import SIMILARITY_THRESHOLD
 
 
@@ -79,10 +79,11 @@ def _format_legacy(contexts: list[FoodContext], nutrient: str) -> str:
         return ""
 
     lines = [
-        "=== USDA Nutritional Reference Data (per 100g) ===",
-        "These are approximate reference values. Use them if they match your food items.",
-        "For foods NOT listed here, use your own nutritional knowledge.",
-        _FORMULA.get(nutrient, _FORMULA["carb"]),
+        "=== USDA Reference (per 100g) ===",
+        "Below are possible USDA matches for some ingredients.",
+        "Ignore wrong matches and use your own knowledge.",
+        "The reference may only cover some of the items — estimate the rest yourself",
+        "Keep reasoning brief",
         "",
     ]
 
@@ -112,9 +113,11 @@ def _format_per_item(
         return ""
 
     lines = [
-        "=== Per-item USDA Reference (per 100g) ===",
-        _FORMULA.get(nutrient, _FORMULA["carb"]),
-        "Use USDA values where provided. For items marked 'no reliable match', use your own knowledge.",
+        "=== USDA Reference (per 100g) ===",
+        "Below are possible USDA matches for some ingredients.",
+        "Ignore wrong matches and use your own knowledge.",
+        "The reference may only cover some of the items — estimate the rest yourself",
+        "Keep reasoning brief",
         "",
     ]
 
@@ -146,12 +149,85 @@ def _format_per_item(
     return "\n".join(lines)
 
 
+# ── Multi-candidate format (V3) ───────────────────────────────────────
+
+def _format_candidate_nutrients(cand: FoodCandidate) -> str:
+    """Format nutrient values for a single candidate."""
+    parts = []
+    for nutrient_key, display_name in _DISPLAY.items():
+        val = cand.nutrients.get(nutrient_key)
+        if val is not None:
+            parts.append(f"{display_name}: {val:.1f}g")
+    for ekey in _ENERGY_KEYS:
+        energy_val = cand.nutrients.get(ekey)
+        if energy_val is not None:
+            parts.append(f"Energy: {energy_val:.1f}kcal")
+            break
+    return " | ".join(parts)
+
+
+def _format_multi_candidate(
+    contexts: list[FoodContext],
+    nutrient: str,
+    threshold: float = SIMILARITY_THRESHOLD,
+) -> str:
+    """Build multi-candidate USDA reference block.
+
+    Shows up to 5 candidates per food item, filtered by similarity threshold.
+    Items with no surviving candidates are omitted entirely to save tokens.
+    """
+    if not contexts:
+        return ""
+
+    lines = [
+        "=== USDA Reference (per 100g) ===",
+        "Below are possible USDA matches for some ingredients.",
+        "Ignore wrong matches and use your own knowledge.",
+        "The reference may only cover some of the items — estimate the rest yourself",
+        "Keep reasoning brief",
+        "",
+    ]
+
+    has_any = False
+    for ctx in contexts:
+        if not ctx.candidates:
+            continue
+        # Filter: must have target nutrient AND meet similarity threshold
+        valid = [
+            c for c in ctx.candidates
+            if _candidate_has_nutrient(c, nutrient) and c.similarity_score >= threshold
+        ]
+        if not valid:
+            continue
+        has_any = True
+        lines.append(f"- {ctx.food_term}:")
+        for i, cand in enumerate(valid, 1):
+            nutrient_str = _format_candidate_nutrients(cand)
+            lines.append(f'  {i}. "{cand.description}" — {nutrient_str}')
+        lines.append("")
+
+    if not has_any:
+        return ""
+
+    lines.append("===")
+    return "\n".join(lines)
+
+
+def _candidate_has_nutrient(cand: FoodCandidate, nutrient: str) -> bool:
+    """Check if a candidate has the required nutrient data."""
+    required_key = _REQUIRED_NUTRIENT.get(nutrient)
+    if required_key:
+        return cand.nutrients.get(required_key) is not None
+    return any(cand.nutrients.get(ek) is not None for ek in _ENERGY_KEYS)
+
+
 # ── Public API ────────────────────────────────────────────────────────
 
 def format_nutrient_block(
     contexts: list[FoodContext],
     nutrient: str | None = None,
     per_item: bool = False,
+    multi_candidate: bool = False,
     threshold: float = SIMILARITY_THRESHOLD,
 ) -> str:
     """Build the USDA reference block from retrieved food contexts.
@@ -160,12 +236,16 @@ def format_nutrient_block(
     ----------
     contexts : list of FoodContext
     nutrient : target nutrient (default: NUTRI_TARGET env var or "carb")
-    per_item : if True, use V3 per-item format with threshold gating
+    per_item : if True, use per-item format with threshold gating
+    multi_candidate : if True, use multi-candidate format (top-k per item,
+                      skip unmatched items)
     threshold : cosine similarity threshold (only used when per_item=True)
     """
     nutrient = nutrient or os.environ.get("NUTRI_TARGET", "carb")
 
-    if per_item:
+    if multi_candidate:
+        return _format_multi_candidate(contexts, nutrient, threshold)
+    elif per_item:
         return _format_per_item(contexts, nutrient, threshold)
     else:
         return _format_legacy(contexts, nutrient)
@@ -175,12 +255,15 @@ def build_rag_doc_to_text(
     meal_description: str,
     contexts: list[FoodContext],
     per_item: bool = False,
+    multi_candidate: bool = False,
 ) -> str:
     """Build the full RAG-augmented user message for NutriBench.
 
     Combines the USDA reference block with the original CoT query format.
     """
-    block = format_nutrient_block(contexts, per_item=per_item)
+    block = format_nutrient_block(
+        contexts, per_item=per_item, multi_candidate=multi_candidate,
+    )
 
     if block:
         return (

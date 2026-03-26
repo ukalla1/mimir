@@ -26,7 +26,7 @@ LLM_MODEL = "qwen3.5-9b"
 # ── Retrieval ──────────────────────────────────────────────────────────
 TOP_K_FOODS = 3          # max DB matches per parsed food item
 GAT_NEIGHBORS_K = 5      # GAT embedding neighbors per seed candidate
-SIMILARITY_THRESHOLD = 0.55  # cosine sim below this → "no reliable match"
+SIMILARITY_THRESHOLD = 0.60  # cosine sim below this → "no reliable match"
 
 # ── Nutrients of interest ──────────────────────────────────────────────
 KEY_NUTRIENTS = [

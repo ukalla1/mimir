@@ -183,7 +183,7 @@ def build_kb(dataset_path: str, db_path: str):
     print("[KB] Selected LINK_T =", LINK_T, "coverage=", link_join_coverage(LINK_T))
 
     # -------------------------
-    # 5) Build nodes_food + edges
+    # 5) Build raw nodes_food + edges (before deduplication)
     # -------------------------
     food_cols = set(cols(FOOD_T))
     food_select = ["CAST(fdc_id AS BIGINT) AS fdc_id", "description"]
@@ -195,7 +195,7 @@ def build_kb(dataset_path: str, db_path: str):
         food_select.append("publication_date")
 
     con.execute(f"""
-        CREATE OR REPLACE TABLE nodes_food AS
+        CREATE OR REPLACE TEMP TABLE _raw_food AS
         SELECT
           {", ".join(food_select)}
         FROM {FOOD_T}
@@ -205,9 +205,8 @@ def build_kb(dataset_path: str, db_path: str):
     link_cols = set(cols(LINK_T))
     amt_col = "amount" if "amount" in link_cols else "value"
 
-    # IMPORTANT: qualify columns in WHERE to avoid binder alias issue
     con.execute(f"""
-        CREATE OR REPLACE TABLE edges_food_contains_nutrient AS
+        CREATE OR REPLACE TEMP TABLE _raw_edges AS
         SELECT
           CAST(t.fdc_id AS BIGINT) AS fdc_id,
           CAST(t.nutrient_id AS BIGINT) AS nutrient_id,
@@ -216,8 +215,67 @@ def build_kb(dataset_path: str, db_path: str):
         WHERE t.fdc_id IS NOT NULL AND t.nutrient_id IS NOT NULL;
     """)
 
+    raw_foods = con.execute("SELECT COUNT(*) FROM _raw_food").fetchone()[0]
+    raw_unique = con.execute("SELECT COUNT(DISTINCT description) FROM _raw_food").fetchone()[0]
+    print(f"[KB] Raw foods: {raw_foods}, unique descriptions: {raw_unique}")
+
     # -------------------------
-    # 6) Build food search index (same as Colab)
+    # 5b) Deduplicate: group by description, pick representative fdc_id,
+    #     average nutrient amounts (skip missing, don't count as 0)
+    # -------------------------
+
+    # For each unique description, pick the fdc_id with the most nutrient edges
+    con.execute("""
+        CREATE OR REPLACE TEMP TABLE _repr AS
+        SELECT f.description, f.fdc_id AS repr_fdc_id
+        FROM _raw_food f
+        JOIN (
+            SELECT f2.description,
+                   f2.fdc_id,
+                   ROW_NUMBER() OVER (
+                       PARTITION BY f2.description
+                       ORDER BY cnt DESC, f2.fdc_id
+                   ) AS rn
+            FROM _raw_food f2
+            LEFT JOIN (
+                SELECT fdc_id, COUNT(*) AS cnt
+                FROM _raw_edges
+                GROUP BY fdc_id
+            ) ec ON f2.fdc_id = ec.fdc_id
+        ) ranked ON f.fdc_id = ranked.fdc_id AND ranked.rn = 1
+    """)
+
+    # Build deduplicated nodes_food using representative fdc_ids
+    con.execute("""
+        CREATE OR REPLACE TABLE nodes_food AS
+        SELECT f.*
+        FROM _raw_food f
+        JOIN _repr r ON f.fdc_id = r.repr_fdc_id
+    """)
+
+    # Build deduplicated edges: average amounts across all fdc_ids sharing
+    # the same description, then assign to the representative fdc_id.
+    # AVG naturally skips NULLs — missing nutrients are not counted as 0.
+    con.execute("""
+        CREATE OR REPLACE TABLE edges_food_contains_nutrient AS
+        SELECT
+            r.repr_fdc_id AS fdc_id,
+            e.nutrient_id,
+            AVG(e.amount) AS amount
+        FROM _raw_edges e
+        JOIN _raw_food f ON e.fdc_id = f.fdc_id
+        JOIN _repr r ON f.description = r.description
+        WHERE e.amount IS NOT NULL
+        GROUP BY r.repr_fdc_id, e.nutrient_id
+    """)
+
+    # Clean up temp tables
+    con.execute("DROP TABLE IF EXISTS _raw_food")
+    con.execute("DROP TABLE IF EXISTS _raw_edges")
+    con.execute("DROP TABLE IF EXISTS _repr")
+
+    # -------------------------
+    # 6) Build food search index
     # -------------------------
     con.execute("""
         CREATE OR REPLACE TABLE food_index AS
@@ -230,11 +288,15 @@ def build_kb(dataset_path: str, db_path: str):
         WHERE description IS NOT NULL;
     """)
 
-    # Basic stats (same as notebook sanity prints)
+    # Basic stats
     foods_n = con.execute("SELECT COUNT(*) FROM nodes_food").fetchone()[0]
     nutrs_n = con.execute("SELECT COUNT(*) FROM nodes_nutrient").fetchone()[0]
     edges_n = con.execute("SELECT COUNT(*) FROM edges_food_contains_nutrient").fetchone()[0]
+    foods_with_edges = con.execute("""
+        SELECT COUNT(DISTINCT fdc_id) FROM edges_food_contains_nutrient
+    """).fetchone()[0]
     print(f"[KB] Foods={foods_n}, Nutrients={nutrs_n}, Edges={edges_n}")
+    print(f"[KB] Foods with ≥1 nutrient: {foods_with_edges}/{foods_n}")
 
     con.close()
     print("[KB] Saved KB to", db_path)

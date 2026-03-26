@@ -17,6 +17,15 @@ from nutri_rag.search import search_food, get_nutrients
 
 
 @dataclass
+class FoodCandidate:
+    """A single USDA candidate for a food item."""
+    fdc_id: int
+    description: str
+    nutrients: dict[str, float] = field(default_factory=dict)
+    similarity_score: float = 0.0
+
+
+@dataclass
 class FoodContext:
     """Retrieved context for a single parsed food item."""
     food_term: str
@@ -25,6 +34,8 @@ class FoodContext:
     nutrients: dict[str, float] = field(default_factory=dict)
     matched: bool = False
     similarity_score: float = 0.0
+    # Top-k candidates for multi-candidate mode
+    candidates: list[FoodCandidate] = field(default_factory=list)
 
 
 # Pattern A: "<qty> g/grams of <food>"  — most common NutriBench format
@@ -115,8 +126,15 @@ class BenchRetriever:
         self._db_path = db_path
         self._use_gat = use_gat
 
-    def retrieve(self, meal_description: str) -> list[FoodContext]:
-        """Extract food terms and retrieve nutrient context."""
+    def retrieve(
+        self, meal_description: str, top_k: int = 1,
+    ) -> list[FoodContext]:
+        """Extract food terms and retrieve nutrient context.
+
+        Args:
+            top_k: Number of USDA candidates to retrieve per food item.
+                   When top_k > 1, candidates are stored in ctx.candidates.
+        """
         food_terms = _extract_food_terms(meal_description)
         contexts: list[FoodContext] = []
         seen_fdc_ids: set[int] = set()
@@ -125,12 +143,12 @@ class BenchRetriever:
             ctx = FoodContext(food_term=term)
 
             df = search_food(
-                None, term, k=1, db_path=self._db_path, use_gat=self._use_gat,
+                None, term, k=top_k, db_path=self._db_path, use_gat=self._use_gat,
             )
 
             if len(df) > 0:
+                # Primary match (first row) for backward compatibility
                 fdc_id = int(df.iloc[0]["fdc_id"])
-                # Skip duplicates
                 if fdc_id in seen_fdc_ids:
                     continue
                 seen_fdc_ids.add(fdc_id)
@@ -142,6 +160,20 @@ class BenchRetriever:
                     None, ctx.fdc_id, key_only=True, db_path=self._db_path
                 )
                 ctx.matched = True
+
+                # Store all candidates when top_k > 1
+                if top_k > 1:
+                    for _, row in df.iterrows():
+                        cand_fdc_id = int(row["fdc_id"])
+                        cand = FoodCandidate(
+                            fdc_id=cand_fdc_id,
+                            description=row["description"],
+                            similarity_score=float(row.get("text_score", 0.0)),
+                            nutrients=get_nutrients(
+                                None, cand_fdc_id, key_only=True, db_path=self._db_path
+                            ),
+                        )
+                        ctx.candidates.append(cand)
 
             contexts.append(ctx)
 
