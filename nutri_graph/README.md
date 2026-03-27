@@ -1,154 +1,142 @@
-# NutriGraph — USDA Food → Nutrient Knowledge Base + GAT Embeddings
+# nutri_graph — USDA Food-Nutrient Knowledge Base + GAT Embeddings
 
-NutriGraph builds a compact **DuckDB knowledge base** from the USDA FoodData Central (Foundation Foods) dataset, then trains a **Graph Attention Network (GATv2)** on a bipartite Food↔Nutrient graph to learn **food embeddings**. The repo also generates:
+Builds a cleaned **DuckDB knowledge base** from USDA FoodData Central (Foundation Foods) and USDA SR Legacy, then trains a **Graph Attention Network (GATv2)** on a bipartite Food↔Nutrient graph to produce **nutritionally-aware food embeddings**.
 
-- **training plots** (loss / AUC / LR)
-- **embedding snapshots** at selected epochs (for UMAP progression)
-- **UMAP cluster progression** plots
+## Data Pipeline
 
-This codebase is a structured port of an original Colab pipeline. The intent is to reproduce the same sequence of steps and artifacts locally.
+### Data Sources
 
----
+| Source | Description | Foods |
+|--------|-------------|-------|
+| **USDA FoodData Central** | Foundation Foods — lab-analyzed nutrient profiles | ~74K raw entries |
+| **USDA SR Legacy** | Curated food database with cooked/prepared forms | 7,793 entries |
 
-## Repository Layout (high level)
+### KB Build Process
 
 ```
-nutri_graph/
-  kb/                 # build DuckDB KB from CSVs
-  graph/              # construct PyG graph + metadata from DuckDB
-  models/             # GATv2 model
-  training/           # Colab-faithful training loop + metrics
-  visualization/      # Plotly paper-style plots, UMAP utilities
-scripts/
-  download_data.py
-  build_kb.py
-  train_GAT.py
-  visualize_umap_progression.py
-data/
-outputs/
-models/
+USDA FDC CSVs ──► Raw ingest (74K foods + nutrient edges)
+                      │
+                      ▼
+                  Junk filtering
+                  - Remove foods with no nutrient edges (lab samples)
+                  - Remove lab analysis prefix entries (e.g., "Amino Acids, Chicken...")
+                  - Remove lab tracking codes (NFY, CY suffixes)
+                  → ~4.6K clean FDC foods
+                      │
+                      ▼
+                  SR Legacy merge (7,793 foods with 644K nutrient edges)
+                  - Offset fdc_ids by 1,000,000 to avoid collision
+                  - Parse tilde-delimited ASCII format
+                  - Merge nutrient definitions
+                      │
+                      ▼
+                  Deduplication
+                  - Group by description
+                  - Pick representative fdc_id (most nutrient edges)
+                  - Average nutrient amounts across duplicates
+                      │
+                      ▼
+                  DuckDB KB (nodes_food, nodes_nutrient, edges_food_contains_nutrient)
 ```
 
----
+### KB Quality
 
-## Requirements
+Before cleaning, 60.7% of FDC entries were junk — lab analysis records (`sub_sample_food`, `market_acquisition`) with no usable nutrient data. These polluted retrieval results (e.g., querying "onion" returned "Sugars, total..."). The cleaning pipeline removes these and adds SR Legacy's curated entries, which include common cooked/prepared forms often missing from FDC (e.g., chicken thigh roasted, sweet potato boiled, tilapia cooked).
 
-- Python 3.9+ recommended
-- Kaggle account + Kaggle API token (for dataset download)
-- PyTorch + PyTorch Geometric (PyG)
+## GAT Model
 
-> Note: Installing PyG can vary by OS / CUDA. If `torch_geometric` import fails, follow the official installation instructions.
+### Architecture
 
----
+A 2-layer GATv2 with dual decoders trained on the food-nutrient bipartite graph:
 
-## Setup
+| Component | Specification |
+|-----------|---------------|
+| Embedding dimension | 64 |
+| GATv2 layers | 2 (4 heads → 1 head) |
+| Edge attributes | log1p-normalized nutrient amounts |
+| Existence decoder | BCE with bipartite negative sampling |
+| Amount decoder | Smooth L1 (Huber) on standardized log1p(amount) |
+| Combined loss | `loss_amt + 0.4 * loss_exist` |
+| Best model criterion | Validation RMSE |
+| Train/Val/Test split | 85/7/8 on food-nutrient edges |
 
-### 1) Create and activate a virtual environment
+### What the Embeddings Encode
 
-### 2) Install dependencies
-
-```bash
-python -m pip install -U pip setuptools wheel
-python -m pip install -r requirements.txt
-```
+The 64-dim food embeddings capture **nutritional similarity** rather than textual similarity. Foods with similar macro/micronutrient profiles cluster together regardless of their names (e.g., "coconut oil" near "palm oil"). These embeddings are used downstream by nutri_rag for:
+- **GAT re-ranking**: break ties when text embedding is ambiguous
+- **Neighbor expansion**: surface nutritionally similar alternatives for meal recommendations
 
 ## End-to-End Pipeline
 
-Run these commands from the **repo root**.
-
-### Step 1 — Download dataset
-
 ```bash
+# 1. Download USDA FDC data
 python scripts/download_data.py
-```
 
-Expected output:
-- `data/raw/` populated with USDA CSV files.
-
----
-
-### Step 2 — Build DuckDB KB
-
-```bash
+# 2. Build KB (FDC + SR Legacy + cleaning + dedup)
 python scripts/build_kb.py
-```
 
-Expected output:
-- `data/nutri_kb.duckdb`
-
-Expected tables inside DuckDB:
-- `nodes_food`
-- `nodes_nutrient`
-- `edges_food_contains_nutrient`
-- `food_index`
-
----
-
-### Step 3 — Train GAT + save embeddings + save snapshots + training plots
-
-```bash
+# 3. Train GAT + save embeddings
 python scripts/train_GAT.py
-```
 
-What this produces:
+# 4. (Optional) Export cleaned KB to JSON
+python scripts/export_kb.py
 
-**Model**
-- `models/gat_checkpoint.pt` (best checkpoint by val RMSE)
-
-**Embeddings**
-- `outputs/embeddings/node_embeddings.(pt|npy)`
-- `outputs/embeddings/food_embeddings.npy`
-
-**Snapshots (for UMAP progression)**
-- `outputs/snapshots/vis_idx.npy`
-- `outputs/snapshots/food_emb_epoch_1.npy`
-- `outputs/snapshots/food_emb_epoch_30.npy`
-- `outputs/snapshots/food_emb_epoch_60.npy`
-- `outputs/snapshots/food_emb_epoch_90.npy`
-
-**Training curves (paper style Plotly)**
-- `outputs/training/train_loss.html` (+ `.png` if Kaleido works)
-- `outputs/training/validation_regression_log1pamount.html` (+ `.png`)
-- `outputs/training/validation_existence_auc.html` (+ `.png`)
-- `outputs/training/learning_rate.html` (+ `.png`)
-- `outputs/training/history.json`
-
-> PNG export uses `kaleido`. HTML is always saved; PNG is best-effort.
-
----
-
-### Step 4 — Generate vivid UMAP cluster progression plots (Plotly)
-
-```bash
+# 5. (Optional) Generate UMAP visualizations
 python scripts/visualize_umap_progression.py
 ```
 
-This script mirrors the Colab visualization logic:
-- UMAP is **fit once** on the reference epoch (`REF_EPOCH = max(snapshot_epochs)`)
-- KMeans (MiniBatchKMeans) is **fit once** on that reference snapshot
-- each epoch snapshot is transformed using the same UMAP model, then clustered using the same KMeans model
+### Outputs
 
-Outputs:
-- `outputs/umap/umap_clusters_vivid_epoch_1.html` (+ `.png`)
-- `outputs/umap/umap_clusters_vivid_epoch_30.html` (+ `.png`)
-- `outputs/umap/umap_clusters_vivid_epoch_60.html` (+ `.png`)
-- `outputs/umap/umap_clusters_vivid_epoch_90.html` (+ `.png`)
+| Artifact | Path |
+|----------|------|
+| Knowledge base | `data/nutri_kb.duckdb` |
+| KB export (JSON) | `data/nutri_kb_export.json` |
+| Best GAT checkpoint | `models/gat_checkpoint.pt` |
+| Food embeddings | `outputs/embeddings/food_embeddings.npy` |
+| Node embeddings | `outputs/embeddings/node_embeddings.{pt,npy}` |
+| UMAP snapshots | `outputs/snapshots/food_emb_epoch_*.npy` |
+| Training curves | `outputs/training/*.html` |
 
-Plots use vivid palettes like the original Colab code.
+## Project Structure
 
----
+```
+nutri_graph/
+  nutri_graph/
+    config.py               # Paths, constants
+    kb/
+      builder.py            # DuckDB KB builder (FDC + SR Legacy + cleaning + dedup + export)
+    graph/                   # PyG graph construction + negative sampling
+    models/
+      gat_model.py          # GATv2 architecture (dual decoders)
+    training/
+      trainer.py            # Training loop with best-checkpoint tracking
+    visualization/          # UMAP, clustering, Plotly training curves
+    retrevial/              # Direct DB retrieval utilities
 
-## Notes on Reproducibility
+  scripts/
+    download_data.py        # Download USDA FDC from Kaggle
+    build_kb.py             # Build DuckDB KB
+    train_GAT.py            # Train GAT + save embeddings + snapshots
+    export_kb.py            # Export KB to JSON for fine-tuning
+    build_recipe_kb.py      # Recipe graph builder
+    demo_retrival.py        # Interactive retrieval demo
+    visualize_umap_progression.py
+    generate_umap.py
 
-You may notice embeddings/UMAP visuals shift between full runs. This is usually due to training nondeterminism (dropout, GPU kernels, random train/val/test split). Even if final metrics are similar, UMAP can change noticeably because it is sensitive to small embedding differences.
+  data/
+    raw/                    # USDA FDC CSVs
+    SR-Leg_ASC/             # SR Legacy tilde-delimited files
+    nutri_kb.duckdb         # Built knowledge base
+    nutri_kb_export.json    # JSON export
 
-If you want strict run-to-run reproducibility, add explicit seeding + deterministic flags (planned as a follow-up improvement).
+  outputs/                  # Embeddings, checkpoints, plots
+  models/                   # GAT checkpoints
+```
 
----
+## Dependencies
 
-## Acknowledgements
-- USDA FoodData Central (Foundation Foods)
+- Python 3.9+
+- PyTorch + PyTorch Geometric (GATv2Conv)
 - DuckDB
-- PyTorch Geometric
-- UMAP-learn
-- Plotly
+- Kaggle API token (for dataset download)
+- Optional: kaleido (PNG export), umap-learn, plotly
