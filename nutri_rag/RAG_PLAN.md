@@ -234,35 +234,93 @@ Step 9: LLM Call 2 -- Recommendation
 
 ---
 
-## Implementation Priority
+## Version 3: Multi-Candidate RAG (Text + GAT + Threshold Filtering) ✅ IMPLEMENTED
 
-1. **First: Text embedding retrieval (V1)**
-   - Set up Qwen3-Embedding
-   - Pre-compute USDA description embeddings
-   - Replace search.py with vector search
-   - Run benchmark to verify improvement over BM25
-   - This alone should significantly improve both modes
+Shows multiple USDA candidates per food item, filtered by cosine similarity threshold,
+letting the LLM choose the best match.
 
-2. **Then: Add nutri_graph layer (V2)**
-   - Add GAT re-ranking for benchmark mode
-   - GAT neighbor expansion already exists in assistant/food_recommender.py
-   - Add preference re-ranking (already exists in assistant/preference_db.py)
-   - Run benchmark to measure additional improvement
+### Key Improvements Over V2
+
+- **Multi-candidate display**: Top-5 candidates per food item instead of single best match
+- **Similarity threshold (0.60)**: Filter out unreliable candidates before showing to LLM
+- **Concise prompt**: Minimal instructions to prevent LLM overthinking
+- **Partial coverage note**: "The reference may only cover some of the items — estimate the rest yourself"
+- **8192 max tokens**: Prevents response truncation on long chain-of-thought
+
+### Benchmark Mode Pipeline
+
+```
+Step 1: Extract food terms (same as V1/V2)
+        --> ["maize flour", "sugar"]
+
+Step 2: Embed each food term (same as V1/V2)
+
+Step 3: Vector search --> top-5 candidates per term
+
+Step 4: GAT re-ranking (same as V2)
+
+Step 5: Similarity threshold filter  <-- NEW
+        Remove candidates with cosine similarity < 0.60
+        Items with no surviving candidates are omitted entirely
+
+Step 6: Format multi-candidate reference block:
+        === USDA Reference (per 100g) ===
+        - maize flour:
+          1. "Corn flour, yellow" — Carbohydrate: 76.7g | ...
+          2. "Cornmeal, whole-grain" — Carbohydrate: 73.1g | ...
+        - sugar:
+          1. "Sugars, granulated" — Carbohydrate: 99.6g | ...
+        ===
+
+Step 7: LLM generation (max 8192 tokens)
+```
+
+### Results (Protein, 1000 samples)
+
+| Version | Acc@7.5g | MAE |
+|---------|----------|-----|
+| Baseline (no RAG) | 0.735 | 7.00 |
+| V3 (multi-candidate) | **0.763** | **6.04** |
+
+### Lessons Learned
+
+- **Bad references hurt more than no references**: Without threshold filtering, V3 performed
+  worse than baseline (0.587 vs 0.735 Acc). A single bad match (tap water → beans) can
+  cause the LLM to produce wildly incorrect estimates.
+- **Prompt wording matters enormously**: "Many may be wrong" primed distrust; "same form"
+  made the LLM reject reasonable matches (raw tilapia for cooked tilapia); "If in doubt,
+  ignore it" caused hundreds of tokens of deliberation. The final concise prompt works
+  because it gives minimal instructions.
+- **Token truncation is silent failure**: When the LLM hits the token limit before producing
+  `Output: {...}`, the response is parsed as -1. Bumping to 8192 tokens fixed this.
+- **KB quality is foundational**: 60.7% of FDC entries were lab analysis junk with no
+  nutrient data. Cleaning these + adding SR Legacy (7,793 curated foods with cooked forms)
+  improved retrieval quality significantly.
 
 ---
 
-## Files to Modify
+## Implementation Status
 
-| File | Change |
-|---|---|
-| `nutri_rag/search.py` | Replace BM25 FTS with vector similarity search |
-| `nutri_rag/bench/retriever.py` | Use new embedding search (minor change) |
-| `nutri_rag/assistant/pipeline.py` | Use new embedding search (minor change) |
+| Version | Status | Key Files |
+|---------|--------|-----------|
+| V0 (BM25) | ✅ Done | `search_bm25.py`, `retriever_bm25.py`, `tasks/nutribench_v2_rag_bm25/` |
+| V1 (Dense) | ✅ Done | `search.py`, `embedding.py`, `tasks/nutribench_v2_rag/` |
+| V2 (Dense+GAT) | ✅ Done | `search.py` (use_gat=True), `tasks/nutribench_v2_rag_gat/` |
+| V3 (Multi-candidate) | ✅ Done | `bench/prompt.py`, `tasks/nutribench_v2_rag_gat_multi/` |
 
-## Files to Add
+---
+
+## Files Overview
 
 | File | Purpose |
 |---|---|
-| `nutri_rag/embedding.py` | Text embedding model wrapper + vector index |
-| `scripts/build_embeddings.py` | One-time script to pre-compute USDA description vectors |
-| `data/food_text_embeddings.npy` | Pre-computed vectors (74175 x 1024) |
+| `nutri_rag/embedding.py` | Text embedding model wrapper + vector index + GAT index |
+| `nutri_rag/search.py` | Semantic vector search + optional GAT re-ranking |
+| `nutri_rag/search_bm25.py` | V0 BM25 full-text search baseline |
+| `nutri_rag/config.py` | Paths, thresholds (SIMILARITY_THRESHOLD=0.60), model config |
+| `nutri_rag/bench/retriever.py` | Regex extraction → embedding search → nutrients |
+| `nutri_rag/bench/prompt.py` | USDA reference block formatting (legacy, per-item, multi-candidate) |
+| `nutri_rag/bench/nutrient_prompts.py` | System prompts + few-shot CoT examples per nutrient |
+| `scripts/build_embeddings.py` | One-time USDA description embedding computation |
+| `scripts/run_bench.py` | Benchmark runner (V0-V3 via lm-eval) |
+| `scripts/run_all_bench.py` | Run all mode/nutrient combinations |
