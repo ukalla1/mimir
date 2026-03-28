@@ -1,6 +1,6 @@
 # Mimir: Graph-Augmented RAG for Nutritional Intelligence
 
-Mimir combines **Graph Attention Networks (GAT)** with **Retrieval-Augmented Generation (RAG)** to estimate nutritional content from natural-language meal descriptions and provide personalized meal recommendations. The system learns food-nutrient relationships from USDA databases and uses them alongside semantic text embeddings and LLM reasoning.
+Mimir combines **Graph Attention Networks (GAT)** with **Retrieval-Augmented Generation (RAG)** to estimate nutritional content from natural-language meal descriptions and provide personalized meal recommendations. The system learns food-nutrient-recipe relationships from USDA databases and FoodKG, and uses them alongside semantic text embeddings and LLM reasoning.
 
 ## Architecture
 
@@ -9,35 +9,40 @@ Mimir combines **Graph Attention Networks (GAT)** with **Retrieval-Augmented Gen
                     │                nutri_graph                    │
                     │    Knowledge Base + GAT Embedding Training    │
                     │                                              │
-                    │  USDA FDC + SR Legacy                        │
+                    │  USDA FDC + SR Legacy + FoodKG               │
                     │    → Junk filtering (remove lab samples)     │
                     │    → Deduplication (avg nutrients)            │
+                    │    → Recipe-ingredient-tag integration        │
                     │    → DuckDB KB                               │
-                    │    → GATv2 Training → Food Embeddings (64d)  │
+                    │    → Heterogeneous GATv2 Training             │
+                    │      (food, nutrient, recipe, tag)            │
+                    │    → Food Embeddings (64d)                   │
                     └──────────────┬───────────────────────────────┘
                                    │
-                    ┌──────────────┴──────────────┐
-                    ▼                              ▼
-    ┌──────────────────────────┐   ┌──────────────────────────────┐
-    │    NutriBench Benchmark  │   │     General Assistant         │
-    │    (Nutrient Estimation) │   │  (Meal Recommendations)      │
-    │                          │   │                              │
-    │  Meal → Regex Extract    │   │  Eaten Foods → Gap Analysis  │
-    │  → Embedding Search      │   │  → DB Query + GAT Expand     │
-    │  → GAT Re-rank/Filter    │   │  → Preference Re-rank        │
-    │  → CoT Prompt → LLM     │   │  → LLM Recommendation        │
-    └──────────────────────────┘   └──────────────────────────────┘
+              ┌────────────────────┼────────────────────┐
+              ▼                    ▼                     ▼
+┌────────────────────┐ ┌──────────────────────┐ ┌──────────────────────┐
+│  NutriBench        │ │  General Assistant   │ │  PFoodReq Benchmark  │
+│  (Nutrient Est.)   │ │  (Meal Recommend.)   │ │  (Recipe Recommend.) │
+│                    │ │                      │ │                      │
+│ Meal → Parse       │ │ Eaten Foods → Parse  │ │ Tag → All Recipes    │
+│ → Embedding Search │ │ → Gap Analysis (LLM) │ │ → Constraint Filter  │
+│ → GAT Re-rank      │ │ → DB Query + GAT     │ │ → GAT Re-rank        │
+│ → CoT Prompt → LLM│ │ → Preference Re-rank │ │ → Return matches     │
+│                    │ │ → Recommend (LLM)    │ │ (no LLM needed)      │
+└────────────────────┘ └──────────────────────┘ └──────────────────────┘
 ```
 
 ## Subsystems
 
 ### [nutri_graph](nutri_graph/) — Knowledge Base + GAT Training
 
-Builds a cleaned DuckDB KB from two USDA sources:
-- **FoodData Central** (Foundation Foods): ~74K raw entries, cleaned to ~4.6K after removing lab analysis junk (60.7% of entries had no usable nutrient data)
-- **SR Legacy**: 7,793 curated entries with cooked/prepared forms (chicken roasted, sweet potato boiled, tilapia cooked, etc.)
+Builds a cleaned DuckDB KB from three data sources:
+- **USDA FoodData Central** (Foundation Foods): ~74K raw entries, cleaned to ~4.6K after removing lab analysis junk
+- **USDA SR Legacy**: 7,793 curated entries with cooked/prepared forms
+- **FoodKG** (via PFoodReq): ~82K recipes with ingredients, nutrients, and cuisine tags — ingredients matched to USDA fdc_ids via Qwen3-Embedding
 
-After merging and deduplication, trains a GATv2 on the food-nutrient bipartite graph to produce 64-dim food embeddings encoding nutritional similarity.
+Trains a heterogeneous GATv2 on a 4-node-type graph (food, nutrient, recipe, tag) to produce 64-dim embeddings encoding nutritional and relational similarity.
 
 ### [nutri_rag](nutri_rag/) — RAG Pipeline
 
@@ -50,41 +55,61 @@ Four retrieval versions for ablation:
 | V2 | Dense + GAT | V1 + GAT re-ranking when text is ambiguous |
 | V3 | Multi-candidate | Top-5 candidates per food, filtered by similarity threshold (0.60) |
 
-Two modes:
+Three modes:
 - **NutriBench Benchmark**: Evaluate carb/protein/fat/energy estimation accuracy using lm-evaluation-harness
-- **General Assistant**: Interactive meal recommendations with GAT neighbor expansion and user preference learning
+- **General Assistant**: Interactive meal recommendations with GAT neighbor expansion, gap analysis, and user preference learning
+- **PFoodReq Benchmark**: Personalized food recommendation using deterministic constraint filtering + GAT re-ranking
 
-## Results (Protein, 1000 samples)
+## Results
+
+### NutriBench (Protein, 1000 samples)
 
 | Version | Acc@7.5g | MAE |
 |---------|----------|-----|
 | Baseline (no RAG) | 0.735 | 7.00 |
 | V3 (multi-candidate + GAT) | **0.763** | **6.04** |
 
+### PFoodReq (Full test set, 2244 queries)
+
+| Method | MAP | MAR | F1 |
+|--------|-----|-----|-----|
+| BAMnet (PFoodReq paper, WSDM 2021) | 62.7 | 61.8 | 63.7 |
+| **Ours (Config C: filter + GAT, no LLM)** | **78.7** | **82.9** | **77.5** |
+
+Config C pipeline: tag lookup → deterministic constraint filter (ingredient inclusion/exclusion + nutrient ranges) → GAT re-ranking. The deterministic filter leverages our clean augmented KB with accurate ingredient-nutrient mappings, outperforming BAMnet's learned embedding approach without requiring an LLM.
+
 ## Quick Start
 
 ```bash
-# 1. Build knowledge base (FDC + SR Legacy + cleaning)
+# 1. Build knowledge base (USDA FDC + SR Legacy + cleaning)
 cd nutri_graph && python scripts/build_kb.py
 
-# 2. Train GAT embeddings
-cd nutri_graph && python scripts/train_GAT.py
-
-# 3. Build text embeddings for RAG
+# 2. Build text embeddings for RAG (must run before recipe KB)
 cd nutri_rag && python scripts/build_embeddings.py
 
-# 4. Start LLM server
-bash nutri_rag/scripts/start_server.sh  # or qwen_test/start_server.sh for benchmarks
+# 3. Integrate FoodKG recipes into KB
+cd nutri_graph && python scripts/build_recipe_kb.py
 
-# 5. Run benchmark
+# 4. Train GAT embeddings (heterogeneous graph: food, nutrient, recipe, tag)
+cd nutri_graph && python scripts/train_GAT.py
+
+# 5. Build recipe text embeddings (for PFoodReq)
+cd nutri_rag && python scripts/build_recipe_embeddings.py
+
+# 6. Start LLM server
+bash nutri_rag/scripts/start_server.sh
+
+# 7. Run NutriBench
 cd nutri_rag && python scripts/run_bench.py --mode v3 --nutrient protein --limit 200
 
-# 6. Run assistant
-cd nutri_rag && python scripts/demo_assistant.py
+# 8. Run PFoodReq benchmark
+cd nutri_rag && python scripts/run_pfoodreq_bench.py
 
-# 7. (Optional) Export KB for fine-tuning
-cd nutri_graph && python scripts/export_kb.py
+# 9. Run interactive assistant
+cd nutri_rag && python scripts/demo_assistant.py
 ```
+
+Note: Steps 6-9 require the LLM server running (step 6), except PFoodReq which runs without LLM by default.
 
 ## Tech Stack
 
@@ -94,7 +119,7 @@ cd nutri_graph && python scripts/export_kb.py
 | Text Embeddings | Qwen3-Embedding-0.6B (1024d, last-token pooling) |
 | LLM Inference | Qwen3.5-9B via llama.cpp / llama-server |
 | Database | DuckDB (columnar storage + full-text search) |
-| Data Sources | USDA FoodData Central + USDA SR Legacy |
+| Data Sources | USDA FoodData Central + USDA SR Legacy + FoodKG |
 | Evaluation | lm-evaluation-harness |
 | Visualization | Plotly, UMAP, scikit-learn |
 
@@ -105,12 +130,14 @@ mimir/
 ├── nutri_graph/                    # Knowledge base + GAT model
 │   ├── nutri_graph/
 │   │   ├── kb/builder.py          # KB builder (FDC + SR Legacy + cleaning + dedup)
+│   │   ├── kb/recipe_builder.py   # FoodKG recipe integration
 │   │   ├── graph/                 # PyG graph construction + negative sampling
-│   │   ├── models/gat_model.py    # GATv2 (dual decoders)
+│   │   ├── models/gat_model.py    # GATv2 (dual decoders, 4 node types)
 │   │   ├── training/trainer.py    # Training loop
 │   │   └── visualization/         # UMAP, clustering, training curves
 │   ├── scripts/
 │   │   ├── build_kb.py            # Build DuckDB KB
+│   │   ├── build_recipe_kb.py     # Integrate FoodKG recipes
 │   │   ├── train_GAT.py           # Train GAT + save embeddings
 │   │   └── export_kb.py           # Export KB to JSON
 │   ├── data/                      # USDA CSVs + SR Legacy + DuckDB
@@ -119,13 +146,17 @@ mimir/
 ├── nutri_rag/                     # RAG pipeline
 │   ├── nutri_rag/
 │   │   ├── config.py              # Thresholds, model config
-│   │   ├── embedding.py           # TextEmbedder + FoodVectorIndex + GATIndex
+│   │   ├── embedding.py           # TextEmbedder + FoodVectorIndex + GATIndex + RecipeVectorIndex
 │   │   ├── search.py              # Semantic + GAT hybrid search
 │   │   ├── bench/                 # NutriBench: retriever, prompt, task utils
-│   │   └── assistant/             # Assistant: gap analysis, recommendations
+│   │   ├── assistant/             # Assistant: gap analysis, recommendations
+│   │   └── pfoodreq/             # PFoodReq: query parser, retriever, evaluator, prompt
 │   ├── tasks/                     # lm-eval task definitions (V0/V1/V2/V3)
-│   ├── scripts/                   # build_embeddings, run_bench, demos
+│   ├── scripts/                   # build_embeddings, run_bench, run_pfoodreq_bench, demos
 │   └── results/                   # Benchmark outputs
+│
+├── PFoodReq/                      # PFoodReq benchmark data (WSDM 2021)
+│   └── data/kbqa_data/            # test/dev/train splits + dish_info_map
 │
 └── README.md
 ```

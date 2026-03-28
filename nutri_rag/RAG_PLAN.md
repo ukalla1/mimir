@@ -299,6 +299,184 @@ Step 7: LLM generation (max 8192 tokens)
 
 ---
 
+## PFoodReq Benchmark: Personalized Food Recommendation via RAG
+
+Evaluates our RAG pipeline on the PFoodReq benchmark (WSDM 2021) — personalized recipe
+recommendation as constrained question answering over FoodKG.
+
+### Background
+
+PFoodReq benchmark:
+- **Task**: Given a natural language food query with constraints → return recipe names
+- **Data**: 4,536 train / 1,512 dev / 2,244 test (1,513 in-domain + 731 out-of-domain)
+- **Constraints**: cuisine tag, ingredient likes/dislikes, nutrient ranges (from ADA guidelines)
+- **Metrics**: MAP, MAR, F1 (set-based retrieval metrics over recipe names)
+- **Their best (PFoodReq+RecipeSim)**: MAP 34.5, MAR 33.0, F1 36.6
+
+Their approach used embedding-based KBQA (BAMnet) with no LLM — published in 2021.
+Our approach uses **RAG with a heterogeneous GAT + LLM reasoning**, which is novel.
+
+### Knowledge Base
+
+The GAT is trained on a heterogeneous graph built from USDA + FoodKG:
+
+```
+Node types:
+  food (0)     — ~10K USDA foods (FDC + SR Legacy, cleaned + deduped)
+  nutrient (1) — ~480 USDA nutrient definitions
+  recipe (2)   — ~82K FoodKG recipes (from PFoodReq's recipe_kg.json)
+  tag (3)      — 238 cuisine/category tags
+
+Edge types:
+  food ←→ nutrient          (USDA food-nutrient amounts)
+  recipe ←→ food            (FoodKG ingredients matched to USDA fdc_ids via text embedding)
+  recipe ←→ tag             (FoodKG cuisine/category labels)
+```
+
+This gives us learned 64-dim embeddings for recipes, foods, and tags — all in the same
+space, encoding nutritional similarity through message passing.
+
+### Pipeline
+
+```
+PFoodReq test example
+        │
+        ▼
+Step 1: Parse structured constraints
+        entities → tag (e.g., "moose")
+        persona → ingredient likes/dislikes
+        guideline + explicit_nutrition → nutrient ranges
+        (No NLP needed — fields are already structured in the JSON)
+        │
+        ▼
+Step 2: Candidate retrieval (tag-based)
+        tag → edges_recipe_has_tag → all recipes under that tag
+        (typically 30-200 candidates per tag)
+        │
+        ▼
+Step 3: Score & rank candidates
+        a) Text embedding: Qwen3-Embedding(query) vs recipe name embeddings → text_score
+        b) GAT embedding: recipe GAT vectors → nutritional coherence → gat_score
+        c) Combined: score = (1-λ) * text_score + λ * gat_score
+        → top-k candidates (e.g., k=20)
+        │
+        ▼
+Step 4: Look up recipe context from KB
+        For each top-k candidate:
+          - Recipe name
+          - Ingredients (edges_recipe_uses_food → nodes_food descriptions)
+          - Nutrients (nodes_recipe: calories, protein, carbs, fat)
+        │
+        ▼
+Step 5: Build RAG prompt
+        === Retrieved Recipes ===
+        1. "Moose Stew"
+           Ingredients: moose meat, potatoes, carrots, onion, beef broth
+           Nutrients: calories 180, protein 22g, carbs 12g, fat 5g
+
+        2. "Venison Marinade"
+           Ingredients: venison, dry red wine, garlic, rosemary
+           Nutrients: calories 95, protein 2g, carbs 8g, fat 0g
+        ...
+        ===
+
+        User query: Recommend low carb moose recipes without ground deer meat
+        User likes: dry red wine
+        User dislikes: tomato paste, sugar
+        Nutrient requirements: carbohydrates 0-45g, sugar 10-35g
+
+        Based on the retrieved recipes, which ones satisfy ALL the user's
+        requirements? Return ONLY a JSON list of recipe names.
+        │
+        ▼
+Step 6: Qwen3.5-9B generates answer
+        LLM reasons over retrieved context + constraints
+        → ["Venison Marinade", "Moose Stew"]
+        │
+        ▼
+Step 7: Parse LLM output → recipe name list
+        │
+        ▼
+Step 8: Evaluate against ground truth → MAP, MAR, F1
+```
+
+### How GAT Helps
+
+The GAT embeddings provide two advantages over text-only retrieval:
+
+1. **Nutritional scoring**: Recipes whose GAT embeddings align with the query's nutrient
+   targets (e.g., "low carb") are boosted. The GAT learned nutritional similarity from
+   the food-nutrient graph, so it knows which recipes are nutritionally appropriate even
+   when their names don't mention nutrients.
+
+2. **Ingredient coherence**: When the query says "no peanuts", the GAT can identify
+   recipes with nutritionally similar ingredients (e.g., tree nuts) that might also be
+   problematic — information the text embedding alone wouldn't capture.
+
+### Ablation Variants
+
+| Variant | Description | Purpose |
+|---------|-------------|---------|
+| Text-only retrieval | λ=0, no GAT | Baseline: text embedding + LLM |
+| GAT-only retrieval | λ=1, no text | Isolate GAT contribution |
+| Text + GAT | Tuned λ on dev set | Full retrieval pipeline |
+| No LLM (retrieval only) | Return top-k directly, no LLM | Compare with/without LLM reasoning |
+| Full RAG | Text + GAT + LLM | Complete system |
+
+Hyperparameters (λ, top-k, threshold) tuned on the **dev set** (1,512 examples),
+final numbers reported on the **test set** (2,244 examples).
+
+### One-Time Setup
+
+```bash
+# Prerequisites: build_kb.py → build_embeddings.py → build_recipe_kb.py → train_GAT.py
+
+# Build recipe text embeddings (encode 82K recipe names with Qwen3-Embedding)
+cd ~/work/atlas/mimir/nutri_rag
+python scripts/build_recipe_embeddings.py
+# → data/embeddings/recipe_text_embeddings.npy (82238, 1024)
+# → data/embeddings/recipe_ids.npy (82238,)
+```
+
+### Running the Benchmark
+
+```bash
+# Start LLM server
+bash scripts/start_server.sh
+
+# Quick test (100 samples)
+python scripts/run_pfoodreq_bench.py --limit 100
+
+# Full test set
+python scripts/run_pfoodreq_bench.py
+
+# Ablations
+python scripts/run_pfoodreq_bench.py --ablation text_only
+python scripts/run_pfoodreq_bench.py --ablation gat_only
+python scripts/run_pfoodreq_bench.py --ablation no_llm
+```
+
+### New Files
+
+| File | Purpose |
+|------|---------|
+| `nutri_rag/pfoodreq/__init__.py` | Module init |
+| `nutri_rag/pfoodreq/query_parser.py` | Parse PFoodReq JSON fields → structured constraints |
+| `nutri_rag/pfoodreq/retriever.py` | Tag filtering + text/GAT scoring + KB context lookup |
+| `nutri_rag/pfoodreq/prompt.py` | Build RAG prompt with recipe context + user constraints |
+| `nutri_rag/pfoodreq/evaluator.py` | MAP / MAR / F1 metric computation |
+| `scripts/build_recipe_embeddings.py` | Pre-compute Qwen3-Embedding for 82K recipe names |
+| `scripts/run_pfoodreq_bench.py` | Benchmark runner (parse → retrieve → LLM → evaluate) |
+
+### Files to Modify
+
+| File | Change |
+|------|--------|
+| `config.py` | Add PFoodReq paths, λ, top-k, recipe embedding paths |
+| `embedding.py` | Add `RecipeVectorIndex` (loads recipe text + GAT embeddings) |
+
+---
+
 ## Implementation Status
 
 | Version | Status | Key Files |
@@ -307,6 +485,7 @@ Step 7: LLM generation (max 8192 tokens)
 | V1 (Dense) | ✅ Done | `search.py`, `embedding.py`, `tasks/nutribench_v2_rag/` |
 | V2 (Dense+GAT) | ✅ Done | `search.py` (use_gat=True), `tasks/nutribench_v2_rag_gat/` |
 | V3 (Multi-candidate) | ✅ Done | `bench/prompt.py`, `tasks/nutribench_v2_rag_gat_multi/` |
+| PFoodReq (RAG+GAT) | 🔲 Planned | `pfoodreq/`, `scripts/run_pfoodreq_bench.py` |
 
 ---
 
@@ -321,6 +500,9 @@ Step 7: LLM generation (max 8192 tokens)
 | `nutri_rag/bench/retriever.py` | Regex extraction → embedding search → nutrients |
 | `nutri_rag/bench/prompt.py` | USDA reference block formatting (legacy, per-item, multi-candidate) |
 | `nutri_rag/bench/nutrient_prompts.py` | System prompts + few-shot CoT examples per nutrient |
+| `nutri_rag/pfoodreq/` | PFoodReq benchmark: query parsing, retrieval, prompting, evaluation |
 | `scripts/build_embeddings.py` | One-time USDA description embedding computation |
-| `scripts/run_bench.py` | Benchmark runner (V0-V3 via lm-eval) |
-| `scripts/run_all_bench.py` | Run all mode/nutrient combinations |
+| `scripts/build_recipe_embeddings.py` | One-time FoodKG recipe name embedding computation |
+| `scripts/run_bench.py` | NutriBench runner (V0-V3 via lm-eval) |
+| `scripts/run_all_bench.py` | Run all NutriBench mode/nutrient combinations |
+| `scripts/run_pfoodreq_bench.py` | PFoodReq benchmark runner |

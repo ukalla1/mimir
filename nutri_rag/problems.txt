@@ -731,3 +731,133 @@ Duplicates: 62437 (84.2%)
                    Avg=0.94, Range=0.72–1.15
   Fat            : ['0.10', '0.20', '0.00', '0.10', '0.00', '0.20']
                    Avg=0.10, Range=0.00–0.20
+
+
+
+======================================================================
+APPROACH 1: Original PFoodReq (NO LLM, NO prompt)
+======================================================================
+
+No prompt at all. BAMnet encodes the query and each candidate recipe 
+into a shared embedding space, scores via dot product, and thresholds.
+
+  query_embedding = BAMnet_encode("Recommend low carb moose recipes...")
+  for each candidate recipe in tag "moose":
+      score = dot(query_embedding, recipe_embedding)
+  return recipes where score > threshold
+
+No ingredients, no nutrients, no LLM reasoning.
+
+======================================================================
+APPROACH 2: Our system WITHOUT RAG (LLM + recipe names only)
+======================================================================
+=== Candidate Recipes ===
+1. "Venison Marinade"
+2. "Moose Stew"
+3. "Roasted Moose"
+4. "Hearty Stew With Moose and Guinness"
+5. "Moose Roast with Cranberry Gravy"
+6. "Stuffed Moose Round Steak Supreme"
+7. "Canadian Moose Soup"
+8. "Moose Steak with Mushroom Sauce"
+9. "Jerky"
+10. "Simple Moose Round (Crockpot)"
+===
+
+Query: Recommend low carbohydrates moose recipes which do not have ingredient ground deer meat?
+Must include: dry red wine
+Must NOT include: tomato paste, sugar
+Nutrient: low carbohydrates (0-45)
+Guideline: sugar 10-35 g per meal
+
+Which recipes satisfy ALL requirements? Return a JSON list of recipe names.
+
+======================================================================
+APPROACH 3: Our system WITH RAG (LLM + retrieved KB context)
+======================================================================
+=== Candidate Recipes ===
+1. "Venison Marinade"
+   Ingredients: venison, dry red wine, garlic, rosemary, olive oil, black pepper
+   Nutrients (per serving): cal: 95.2, protein: 2.1, carbs: 8.3, sat_fat: 0.1
+2. "Moose Stew"
+   Ingredients: moose meat, potatoes, carrots, onion, beef broth, celery, garlic
+   Nutrients (per serving): cal: 180.5, protein: 22.4, carbs: 12.1, sat_fat: 3.2
+3. "Roasted Moose"
+   Ingredients: moose roast, onion, garlic, butter, salt, black pepper
+   Nutrients (per serving): cal: 210.3, protein: 28.1, carbs: 5.2, sat_fat: 4.1
+4. "Hearty Stew With Moose and Guinness"
+   Ingredients: moose meat, guinness, potatoes, carrots, tomato paste, onion, flour, sugar
+   Nutrients (per serving): cal: 250.8, protein: 18.5, carbs: 22.3, sat_fat: 5.6
+5. "Moose Roast with Cranberry Gravy"
+   Ingredients: moose roast, cranberries, sugar, dry red wine, onion, garlic
+   Nutrients (per serving): cal: 195.0, protein: 24.3, carbs: 15.8, sat_fat: 3.8
+===
+
+Query: Recommend low carbohydrates moose recipes which do not have ingredient ground deer meat?
+Must include: dry red wine
+Must NOT include: tomato paste, sugar
+Nutrient: low carbohydrates (0-45)
+Guideline: sugar 10-35 g per meal
+
+Which recipes from the list above satisfy ALL requirements? Return a JSON list of recipe names.
+
+======================================================================
+KEY DIFFERENCE
+======================================================================
+
+Without RAG: LLM only sees recipe NAMES. It must guess whether 
+  "Hearty Stew With Moose and Guinness" contains tomato paste 
+  or how many carbs it has — purely from its training knowledge.
+
+With RAG: LLM sees ingredients + nutrients retrieved from our KB.
+  It can directly check: "Hearty Stew" has tomato paste → exclude.
+  "Venison Marinade" has carbs 8.3g < 45g → keep.
+
+Original PFoodReq: No LLM at all. Pure embedding matching.
+  Cannot reason about constraints — just learned patterns.
+
+
+
+
+
+{
+  "entities": [["moose", "tag"]],
+  "topicKey": ["http://idea.rpi.edu/heals/kb/tag/moose"],
+  "qOriginText": "Recommend low carbohydrates moose recipes which do not have ingredient ground deer meat?",
+  "qText": "Recommend low carbohydrates moose recipes which do not have ingredient ground deer meat, and have dry red wine, and do not have tomato paste, sugar, and contain sugar with desired range 10.0 g to 35.0 g?",
+  "origin_answers": [35 recipes - ALL moose-tagged recipes minus those with "ground deer meat"],
+  "answers": ["Venison Marinade", "Moose Stew"],  // final answers after ALL constraints
+  "explicit_nutrition": [{"nutrition": "carbohydrates", "level": "low", "range": [0, 45]}],
+  "persona": {
+    "ingredient_likes": ["dry red wine"],
+    "ingredient_dislikes": ["tomato paste", "sugar"]
+  },
+  "guideline": {"sugar": {"unit": "g", "meal": {"lower": "10", "upper": "35"}}}
+}
+
+
+Original PFoodReq Evaluation Pipeline
+Step 1: Candidate Generation (via KG traversal)
+For each query, PFoodReq uses the topicKey (tag URI) to traverse FoodKG:
+
+
+tag node ("moose") → [tagged_dishes edge] → ALL recipes under that tag
+For Example 0, this gives all 46 moose recipes. These are the origin_answers in the data — recipes that match the original query's basic constraint (tag + excluded ingredient from qOriginText).
+
+Step 2: Constraint Filtering (what BAMnet learns to do)
+The full query (qText) adds persona + nutrition + guidelines on top. BAMnet learns to score each candidate against ALL constraints:
+
+Constraint source	Example 0
+qOriginText	moose tag, no "ground deer meat"
+explicit_nutrition	low carbohydrates (0-45g)
+persona.ingredient_likes	must have "dry red wine"
+persona.ingredient_dislikes	must NOT have "tomato paste", "sugar"
+guideline	sugar 10-35g per meal
+BAMnet encodes these constraints into a query vector, scores all 46 candidates, and outputs the ones that pass. The answers field (["Venison Marinade", "Moose Stew"]) are the ground truth — the only 2 out of 46 that satisfy every constraint.
+
+Step 3: Evaluation Metrics
+They compare predicted recipe names against answers:
+
+MAP (Mean Average Precision) — considers rank order of correct predictions
+MAR (Mean Average Recall) — considers how many correct answers were found
+F1 — harmonic mean of precision and recall per query, macro-averaged

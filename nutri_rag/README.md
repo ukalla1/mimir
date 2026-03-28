@@ -88,13 +88,29 @@ Meal: "126g of maize flour and 27g of raw sugar"
 
 ## Setup
 
-```bash
-cd nutri_rag
-pip install -e .
+The full build order across both subsystems:
 
-# Pre-compute text embeddings (one-time, ~46s on GPU)
+```bash
+# 1. Build USDA knowledge base (nutri_graph)
+cd ~/work/atlas/mimir/nutri_graph
+python scripts/build_kb.py
+
+# 2. Build text embeddings for USDA foods (nutri_rag)
+#    Must run AFTER build_kb.py (reads nodes_food table)
+#    Must run BEFORE build_recipe_kb.py (used for ingredient matching)
+cd ~/work/atlas/mimir/nutri_rag
 python scripts/build_embeddings.py
+
+# 3. Integrate FoodKG recipes into KB (nutri_graph)
+#    Adds recipe tables to nutri_kb.duckdb, does not modify USDA data
+cd ~/work/atlas/mimir/nutri_graph
+python scripts/build_recipe_kb.py
+
+# 4. Train GAT on full graph (nutri_graph)
+python scripts/train_GAT.py
 ```
+
+`build_embeddings.py` only needs re-running when the USDA food list changes (i.e., after `build_kb.py`). It does **not** need re-running after `build_recipe_kb.py` or `train_GAT.py`.
 
 ## Usage
 

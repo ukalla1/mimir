@@ -28,6 +28,19 @@ TOP_K_FOODS = 3          # max DB matches per parsed food item
 GAT_NEIGHBORS_K = 5      # GAT embedding neighbors per seed candidate
 SIMILARITY_THRESHOLD = 0.60  # cosine sim below this → "no reliable match"
 
+# ── PFoodReq Benchmark ────────────────────────────────────────────────
+_PFOODREQ = _MIMIR_ROOT / "PFoodReq"
+PFOODREQ_TEST_PATH = str(_PFOODREQ / "data" / "kbqa_data" / "test_qas.json")
+PFOODREQ_DEV_PATH = str(_PFOODREQ / "data" / "kbqa_data" / "valid_qas.json")
+PFOODREQ_TRAIN_PATH = str(_PFOODREQ / "data" / "kbqa_data" / "train_qas.json")
+
+RECIPE_TEXT_EMBEDDINGS_PATH = str(_PROJECT_ROOT / "data" / "embeddings" / "recipe_text_embeddings.npy")
+RECIPE_IDS_PATH = str(_PROJECT_ROOT / "data" / "embeddings" / "recipe_ids.npy")
+
+PFOODREQ_TOP_K = 20         # max candidates to show LLM per query
+PFOODREQ_LAMBDA = 1.0       # GAT weight in combined score: (1-λ)*text + λ*gat
+PFOODREQ_MAX_TOKENS = 4096  # LLM max output tokens
+
 # ── Nutrients of interest ──────────────────────────────────────────────
 KEY_NUTRIENTS = [
     "Carbohydrate, by difference",
