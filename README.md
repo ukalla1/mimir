@@ -19,8 +19,8 @@ Mimir combines **Graph Attention Networks (GAT)** with **Retrieval-Augmented Gen
                     │    → Food Embeddings (64d)                   │
                     └──────────────┬───────────────────────────────┘
                                    │
-              ┌────────────────────┼────────────────────┐
-              ▼                    ▼                     ▼
+        ┌──────────────────────────┼──────────────────────────┐
+        ▼                          ▼                           ▼
 ┌────────────────────┐ ┌──────────────────────┐ ┌──────────────────────┐
 │  NutriBench        │ │  General Assistant   │ │  PFoodReq Benchmark  │
 │  (Nutrient Est.)   │ │  (Meal Recommend.)   │ │  (Recipe Recommend.) │
@@ -30,7 +30,20 @@ Mimir combines **Graph Attention Networks (GAT)** with **Retrieval-Augmented Gen
 │ → GAT Re-rank      │ │ → DB Query + GAT     │ │ → GAT Re-rank        │
 │ → CoT Prompt → LLM│ │ → Preference Re-rank │ │ → Return matches     │
 │                    │ │ → Recommend (LLM)    │ │ (no LLM needed)      │
-└────────────────────┘ └──────────────────────┘ └──────────────────────┘
+└────────────────────┘ └──────────┬───────────┘ └──────────────────────┘
+                                  │
+                                  ▼
+                    ┌──────────────────────────┐
+                    │      nutri-atlas          │
+                    │  (Robot Integration)      │
+                    │                           │
+                    │  User ─► Qwen Agent       │
+                    │  ─► Tool calls            │
+                    │    ├─ Navigation (ZMQ)    │
+                    │    ├─ Object detection    │
+                    │    └─ Meal recommendation │
+                    │       (via nutri_rag)     │
+                    └──────────────────────────┘
 ```
 
 ## Subsystems
@@ -59,6 +72,17 @@ Three modes:
 - **NutriBench Benchmark**: Evaluate carb/protein/fat/energy estimation accuracy using lm-evaluation-harness
 - **General Assistant**: Interactive meal recommendations with GAT neighbor expansion, gap analysis, and user preference learning
 - **PFoodReq Benchmark**: Personalized food recommendation using deterministic constraint filtering + GAT re-ranking
+
+### [nutri-atlas](nutri-atlas/) — Robot Integration
+
+Connects the nutrition assistant to a Clearpath Go2 robot via Qwen Agent tool-calling. The robot assistant can navigate, detect objects, and provide meal recommendations — all through natural language.
+
+- **Navigation tools**: go to landmarks, spin, detect objects via camera
+- **Nutrition tool**: `get_meal_recommendation` wraps `nutri_rag`'s full pipeline (parse → gap analysis → GAT expansion → recommendation)
+- **LLM**: Qwen3.5-9B as the orchestration agent, deciding when to call navigation vs nutrition tools
+- **Communication**: ZMQ bridge to ROS2 on the robot
+
+Example: *"I ate an apple and milk for breakfast, what should I eat for lunch?"* → the agent calls `get_meal_recommendation` → returns a personalized suggestion based on nutritional gap analysis.
 
 ## Results
 
@@ -96,20 +120,25 @@ cd nutri_graph && python scripts/train_GAT.py
 # 5. Build recipe text embeddings (for PFoodReq)
 cd nutri_rag && python scripts/build_recipe_embeddings.py
 
-# 6. Start LLM server
+# 6. Start LLM server (port 8080 for nutri_rag)
 bash nutri_rag/scripts/start_server.sh
 
 # 7. Run NutriBench
 cd nutri_rag && python scripts/run_bench.py --mode v3 --nutrient protein --limit 200
 
-# 8. Run PFoodReq benchmark
+# 8. Run PFoodReq benchmark (no LLM server needed)
 cd nutri_rag && python scripts/run_pfoodreq_bench.py
 
 # 9. Run interactive assistant
 cd nutri_rag && python scripts/demo_assistant.py
+
+# 10. Run robot assistant with nutrition (requires both LLM servers)
+#     Terminal 1: bash nutri_rag/scripts/start_server.sh     (port 8080, for nutrition)
+#     Terminal 2:
+cd nutri-atlas/robot_control && python robot_assistant.py
 ```
 
-Note: Steps 6-9 require the LLM server running (step 6), except PFoodReq which runs without LLM by default.
+Note: Steps 7, 9, 10 require the LLM server on port 8080 (step 6). Step 10 additionally requires the robot agent LLM server on port 8001. PFoodReq (step 8) runs without any LLM server.
 
 ## Tech Stack
 
@@ -118,6 +147,8 @@ Note: Steps 6-9 require the LLM server running (step 6), except PFoodReq which r
 | Graph ML | PyTorch + PyTorch Geometric (GATv2Conv) |
 | Text Embeddings | Qwen3-Embedding-0.6B (1024d, last-token pooling) |
 | LLM Inference | Qwen3.5-9B via llama.cpp / llama-server |
+| Agent Framework | Qwen Agent (tool-calling orchestration) |
+| Robot Communication | ZMQ → ROS2 (Clearpath Go2) |
 | Database | DuckDB (columnar storage + full-text search) |
 | Data Sources | USDA FoodData Central + USDA SR Legacy + FoodKG |
 | Evaluation | lm-evaluation-harness |
@@ -154,6 +185,19 @@ mimir/
 │   ├── tasks/                     # lm-eval task definitions (V0/V1/V2/V3)
 │   ├── scripts/                   # build_embeddings, run_bench, run_pfoodreq_bench, demos
 │   └── results/                   # Benchmark outputs
+│
+├── nutri-atlas/                   # Robot integration
+│   ├── robot_control/
+│   │   ├── robot_assistant.py     # Main chat loop + Qwen Agent
+│   │   ├── tools/
+│   │   │   ├── navigate_tool.py   # Navigate to landmarks / coordinates
+│   │   │   ├── object_tool.py     # Camera object detection queries
+│   │   │   ├── motion_tool.py     # Spin and move primitives
+│   │   │   ├── nutrition_tool.py  # Meal recommendation (wraps nutri_rag)
+│   │   │   └── zmq_client.py      # ZMQ transport to robot
+│   │   └── config/landmarks.yaml  # Named room positions
+│   ├── scripts/start_server.sh    # LLM server for robot agent (port 8001)
+│   └── benchmark_tasks.yaml       # 30+ graded robot benchmark tasks
 │
 ├── PFoodReq/                      # PFoodReq benchmark data (WSDM 2021)
 │   └── data/kbqa_data/            # test/dev/train splits + dish_info_map
