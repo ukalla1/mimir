@@ -45,7 +45,7 @@ generation_kwargs:
   until: []
   do_sample: false
   temperature: 0.0
-  max_gen_toks: 4096
+  max_gen_toks: 8192
 
 metric_list:
   - metric: acc

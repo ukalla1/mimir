@@ -68,7 +68,7 @@ def main():
                         help="Limit number of samples per run")
     parser.add_argument("--port", type=int, default=8080,
                         help="llama-server port (default: 8080)")
-    parser.add_argument("--concurrent", type=int, default=6,
+    parser.add_argument("--concurrent", type=int, default=3,
                         help="Number of concurrent requests (default: 6)")
     args = parser.parse_args()
 

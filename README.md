@@ -120,25 +120,31 @@ cd nutri_graph && python scripts/train_GAT.py
 # 5. Build recipe text embeddings (for PFoodReq)
 cd nutri_rag && python scripts/build_recipe_embeddings.py
 
-# 6. Start LLM server (port 8080 for nutri_rag)
-bash nutri_rag/scripts/start_server.sh
-
-# 7. Run NutriBench
-cd nutri_rag && python scripts/run_bench.py --mode v3 --nutrient protein --limit 200
-
-# 8. Run PFoodReq benchmark (no LLM server needed)
-cd nutri_rag && python scripts/run_pfoodreq_bench.py
-
-# 9. Run interactive assistant
-cd nutri_rag && python scripts/demo_assistant.py
-
-# 10. Run robot assistant with nutrition (requires both LLM servers)
-#     Terminal 1: bash nutri_rag/scripts/start_server.sh     (port 8080, for nutrition)
-#     Terminal 2:
-cd nutri-atlas/robot_control && python robot_assistant.py
 ```
 
-Note: Steps 7, 9, 10 require the LLM server on port 8080 (step 6). Step 10 additionally requires the robot agent LLM server on port 8001. PFoodReq (step 8) runs without any LLM server.
+### Usage
+
+Start the LLM server first (required for all usage except PFoodReq):
+
+```bash
+bash nutri_rag/scripts/start_server.sh    # Qwen3.5-9B on port 8080
+```
+
+Then in a separate terminal, run any of the following:
+
+```bash
+# NutriBench — evaluate nutrient estimation accuracy
+cd nutri_rag && python scripts/run_bench.py --mode v3 --nutrient protein --limit 200
+
+# PFoodReq benchmark — personalized recipe recommendation (no LLM server needed)
+cd nutri_rag && python scripts/run_pfoodreq_bench.py
+
+# Nutrition assistant only — interactive meal recommendations
+cd nutri_rag && python scripts/demo_assistant.py
+
+# Robot assistant — navigation + nutrition (includes everything demo_assistant can do)
+cd nutri-atlas/robot_control && python robot_assistant.py
+```
 
 ## Tech Stack
 
