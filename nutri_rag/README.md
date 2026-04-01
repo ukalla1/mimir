@@ -1,8 +1,9 @@
 # nutri_rag — RAG Pipeline for Nutrition Estimation & Meal Recommendations
 
-RAG system that combines the [nutri_graph](../nutri_graph/) knowledge base (DuckDB + GAT embeddings) with semantic text embeddings (Qwen3-Embedding) and an LLM (Qwen3.5-9B) for two tasks:
+RAG system that combines the [nutri_graph](../nutri_graph/) knowledge base (DuckDB + GAT embeddings) with semantic text embeddings (Qwen3-Embedding) and an LLM (Qwen3.5-9B) for three tasks:
 1. **NutriBench Benchmark** — evaluate nutritional content estimation accuracy
-2. **General Assistant** — personalized meal recommendations
+2. **PFoodReq Benchmark** — personalized recipe recommendation (no LLM needed)
+3. **General Assistant** — personalized meal recommendations
 
 ## Retrieval Versions
 
@@ -116,13 +117,17 @@ python scripts/train_GAT.py
 
 ### Start the LLM Server
 
+Both scripts start the same Qwen3.5-9B model on port 8080 with identical config, differing only in concurrency:
+
 ```bash
-# For assistant mode (single user)
+# For assistant / robot usage (parallel=1, single user)
 bash scripts/start_server.sh
 
-# For benchmarking (parallel requests)
+# For benchmark evaluation (parallel=3, concurrent requests)
 bash ../../qwen_test/start_server.sh
 ```
+
+Note: PFoodReq benchmark (`run_pfoodreq_bench.py`) does not need the LLM server.
 
 ### NutriBench Benchmark
 
@@ -148,6 +153,19 @@ python scripts/plot_similarity_analysis.py --limit 100
 
 # Interactive retrieval demo
 python scripts/demo_bench.py
+```
+
+### PFoodReq Benchmark
+
+```bash
+# Full test set (2244 queries, no LLM server needed)
+python scripts/run_pfoodreq_bench.py
+
+# Quick test
+python scripts/run_pfoodreq_bench.py --limit 10
+
+# With LLM verification (optional)
+python scripts/run_pfoodreq_bench.py --ablation with_llm
 ```
 
 ### General Assistant

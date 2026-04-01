@@ -1,9 +1,15 @@
 #!/bin/bash
-# Start llama-server for nutri_rag assistant mode.
+# Start llama-server for nutri_rag (Qwen3.5-9B on port 8080).
 #
-# Differences from qwen_test/start_server.sh:
-#   - Thinking enabled (better reasoning for gap analysis)
-#   - parallel=1 (assistant is single-user, sequential requests)
+# This is the primary server script for all Mimir usage:
+#   - NutriBench evaluation
+#   - Interactive nutrition assistant (demo_assistant.py)
+#   - Robot assistant with nutrition (nutri-atlas/robot_assistant.py)
+#   - PFoodReq benchmark does NOT need this server
+#
+# parallel=1 is suitable for single-user assistant and robot usage.
+# For benchmark evaluation with concurrent requests, use:
+#   qwen_test/start_server.sh  (identical config but parallel=3)
 set -e
 
 MODEL_PATH="/home/boxun/work/atlas/unsloth/Qwen3.5-9B-GGUF/Qwen3.5-9B-UD-Q4_K_XL.gguf"
