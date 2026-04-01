@@ -102,49 +102,164 @@ Example: *"I ate an apple and milk for breakfast, what should I eat for lunch?"*
 
 Config C pipeline: tag lookup → deterministic constraint filter (ingredient inclusion/exclusion + nutrient ranges) → GAT re-ranking. The deterministic filter leverages our clean augmented KB with accurate ingredient-nutrient mappings, outperforming BAMnet's learned embedding approach without requiring an LLM.
 
-## Quick Start
+## Implementation Process (All Submodules)
+
+This is the recommended end-to-end order when deploying on a new machine.
+
+### 0) Environment Setup
 
 ```bash
-# 1. Build knowledge base (USDA FDC + SR Legacy + cleaning)
-cd nutri_graph && python scripts/build_kb.py
+cd ~/work/atlas/mimir
+python -m venv .venv
+source .venv/bin/activate
+pip install -U pip
 
-# 2. Build text embeddings for RAG (must run before recipe KB)
-cd nutri_rag && python scripts/build_embeddings.py
+# Install local packages
+pip install -e nutri_graph
+pip install -e nutri_rag
 
-# 3. Integrate FoodKG recipes into KB
-cd nutri_graph && python scripts/build_recipe_kb.py
-
-# 4. Train GAT embeddings (heterogeneous graph: food, nutrient, recipe, tag)
-cd nutri_graph && python scripts/train_GAT.py
-
-# 5. Build recipe text embeddings (for PFoodReq)
-cd nutri_rag && python scripts/build_recipe_embeddings.py
-
+# Install explicit deps used by graph/robot scripts
+pip install -r nutri_graph/requirements.txt
+pip install qwen-agent pyzmq pyyaml json5 requests transformers scikit-learn duckdb numpy torch
 ```
 
-### Usage
+Notes:
+- Python `>=3.9` is required by `nutri_graph` and `nutri_rag`.
+- `nutri_graph/scripts/download_data.py` needs Kaggle credentials.
 
-Start the LLM server first (required for all usage except PFoodReq):
+### 1) Build `nutri_graph` Knowledge Base
 
 ```bash
-bash nutri_rag/scripts/start_server.sh    # Qwen3.5-9B on port 8080
+cd ~/work/atlas/mimir/nutri_graph
+
+# Optional: fetch USDA data
+python scripts/download_data.py
+
+# Required: build clean USDA + SR Legacy KB
+python scripts/build_kb.py
 ```
 
-Then in a separate terminal, run any of the following:
+Output:
+- `nutri_graph/data/nutri_kb.duckdb`
+
+### 2) Build `nutri_rag` Food Text Embeddings
 
 ```bash
-# NutriBench — evaluate nutrient estimation accuracy
-cd nutri_rag && python scripts/run_bench.py --mode v3 --nutrient protein --limit 200
-
-# PFoodReq benchmark — personalized recipe recommendation (no LLM server needed)
-cd nutri_rag && python scripts/run_pfoodreq_bench.py
-
-# Nutrition assistant only — interactive meal recommendations
-cd nutri_rag && python scripts/demo_assistant.py
-
-# Robot assistant — navigation + nutrition (includes everything demo_assistant can do)
-cd nutri-atlas/robot_control && python robot_assistant.py
+cd ~/work/atlas/mimir/nutri_rag
+python scripts/build_embeddings.py
 ```
+
+Why now:
+- `build_recipe_kb.py` in `nutri_graph` uses these food embeddings for recipe ingredient matching.
+
+### 3) Integrate FoodKG Recipes into `nutri_graph`
+
+```bash
+cd ~/work/atlas/mimir/nutri_graph
+python scripts/build_recipe_kb.py
+```
+
+Adds recipe/tag tables into the same DuckDB KB.
+
+### 4) Train GAT Embeddings in `nutri_graph`
+
+```bash
+cd ~/work/atlas/mimir/nutri_graph
+python scripts/train_GAT.py
+```
+
+Key outputs:
+- `nutri_graph/outputs/embeddings/food_embeddings.npy`
+- `nutri_graph/outputs/embeddings/node_embeddings.pt`
+
+### 5) (Optional) Build Recipe Text Embeddings for PFoodReq
+
+```bash
+cd ~/work/atlas/mimir/nutri_rag
+python scripts/build_recipe_embeddings.py
+```
+
+### 6) Start LLM Server (`nutri_rag`)
+
+Required for:
+- `nutri_rag/scripts/run_bench.py`
+- `nutri_rag/scripts/demo_assistant.py`
+- `nutri-atlas/robot_control/robot_assistant.py`
+
+```bash
+cd ~/work/atlas/mimir/nutri_rag
+bash scripts/start_server.sh
+# serves OpenAI-compatible endpoint on http://0.0.0.0:8080/v1
+```
+
+### 7) Run Each Subsystem
+
+```bash
+# A) NutriBench benchmark
+cd ~/work/atlas/mimir/nutri_rag
+python scripts/run_bench.py --mode v3 --nutrient protein --limit 200
+
+# B) PFoodReq benchmark (LLM server not required)
+cd ~/work/atlas/mimir/nutri_rag
+python scripts/run_pfoodreq_bench.py
+
+# C) Nutrition assistant
+cd ~/work/atlas/mimir/nutri_rag
+python scripts/demo_assistant.py
+
+# D) Robot assistant (navigation + nutrition)
+cd ~/work/atlas/mimir/nutri-atlas/robot_control
+python robot_assistant.py
+```
+
+## Two-Computer Deployment (Same Wi-Fi)
+
+Use this when running the assistant from another computer on the same network.
+
+### Machine Roles
+
+1. Robot-side machine:
+- Runs ZMQ servers (ports `5555`, `5556`)
+- Usually connected to ROS2/robot runtime
+
+2. Operator machine:
+- Runs `nutri_graph` + `nutri_rag` + `nutri-atlas` Python code
+- Runs LLM server on port `8080`
+
+### Robot-side Machine Commands
+
+```bash
+cd ~/work/atlas/mimir/robot_side
+python zmq_bridge_node.py --port 5555
+python zmq_object_server.py --port 5556
+```
+
+### Operator Machine Commands
+
+```bash
+# 1) Start LLM server first
+cd ~/work/atlas/mimir/nutri_rag
+bash scripts/start_server.sh
+
+# 2) Set robot-side IP/ports for tool clients
+export ROBOT_IP=<robot_side_machine_ip>
+export ROBOT_PORT=5555
+export OBJECT_SERVER_IP=<robot_side_machine_ip>
+export OBJECT_SERVER_PORT=5556
+export NAV_TIMEOUT_MS=60000
+
+# 3) Start robot assistant
+cd ~/work/atlas/mimir/nutri-atlas/robot_control
+python robot_assistant.py
+```
+
+Network checklist:
+- Both machines are on the same subnet (for example `192.168.1.x`).
+- Firewall allows inbound TCP `5555` and `5556` on robot-side machine.
+- Firewall allows local process access to `8080` on operator machine.
+
+Important current behavior:
+- `robot_assistant.py` and `nutri_rag` are currently configured to call the LLM at `localhost:8080`, so run the assistant on the same machine where `nutri_rag/scripts/start_server.sh` is running.
 
 ## Tech Stack
 
@@ -202,7 +317,6 @@ mimir/
 │   │   │   ├── nutrition_tool.py  # Meal recommendation (wraps nutri_rag)
 │   │   │   └── zmq_client.py      # ZMQ transport to robot
 │   │   └── config/landmarks.yaml  # Named room positions
-│   ├── scripts/start_server.sh    # LLM server for robot agent (port 8001)
 │   └── benchmark_tasks.yaml       # 30+ graded robot benchmark tasks
 │
 ├── PFoodReq/                      # PFoodReq benchmark data (WSDM 2021)
