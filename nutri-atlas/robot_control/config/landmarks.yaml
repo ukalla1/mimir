@@ -1,0 +1,25 @@
+landmarks:
+  bathroom:
+    x: 2.86
+    y: -10.68
+    description: "Bathroom"
+
+  Hallway:
+    x: 2.40
+    y: -4.64
+    description: "Hallway"
+
+  kitchen:
+    x: -4.88
+    y: -3.46
+    description: "Kitchen area"
+
+  bedroom:
+    x: -3.23
+    y: -8.92
+    description: "Bedroom"
+
+  living_room:
+    x: 6.53
+    y: -1.46
+    description: "Living room"

@@ -1,0 +1,1499 @@
+
+████████████████████████████████████████████████████████████████████████████████
+PROBLEM 0: USDA DB — Food matched but NO macronutrient data
+████████████████████████████████████████████████████████████████████████████████
+
+EXPLANATION: The search finds "Corn flour, masa harina" (fdc_id=2712869) with
+cosine similarity 0.634 — a GOOD match. But this food entry only has Niacin
+in the DB. No Protein, no Carbohydrate, no Fat, no Energy data at all.
+
+The DB has 74,175 foods but only 1,376 (1.9%) have Protein data.
+Most entries are sub_sample_food (62K) with only trace minerals.
+
+Here's what happens:
+  1. Term "maize flour" extracted ✓
+  2. Search finds "Corn flour, masa harina" with sim=0.634 ✓
+  3. get_nutrients() returns {} — no macros in DB ✗
+  4. _has_target_nutrient() returns False → item filtered out
+  5. Prompt shows NO reference for this item
+
+Direct DB evidence:
+  fdc_id=2712869 "Corn flour, masa harina, white, dry, raw"
+  Nutrients in DB: {Niacin: 1.54}  ← only trace vitamin, no macros!
+
+This affects 42% of samples (417/1000) where ALL food terms get filtered out.
+
+
+################################################################################
+FAILURE MODE: PROBLEM 0: Food found with good sim=0.634 but 0 macronutrient data → 0 refs in prompt
+DOC_ID: 4
+MEAL: For dinner, I had 105g of raw maize flour along with a boiled large onion (1g), 5g of boiled pumpkin leaves, 5g of boiled ripe tomato, and 4g of boiled medium fat pork.
+GROUND TRUTH (protein): 8.4
+BASELINE MAE: 0.91 | RAG MAE: 3.69 | DELTA: +2.78
+
+========================================
+RAG INPUT (user message to Qwen3.5):
+========================================
+Query: "For dinner, I had 105g of raw maize flour along with a boiled large onion (1g), 5g of boiled pumpkin leaves, 5g of boiled ripe tomato, and 4g of boiled medium fat pork."
+Answer: Let's think step by step.
+
+========================================
+RAG OUTPUT (Qwen3.5 response):
+========================================
+The meal consists of 105g of raw maize flour, 1g of boiled large onion, 5g of boiled pumpkin leaves, 5g of boiled ripe tomato, and 4g of boiled medium fat pork.
+
+1. **105g of raw maize flour**: According to USDA data, 100g of raw maize flour contains approximately 10.3g of protein.
+   Calculation: $10.3 \times 1.05 = 10.815$g protein.
+
+2. **1g of boiled large onion**: 100g of boiled onions contains approximately 1.1g of protein.
+   Calculation: $1.1 \times 0.01 = 0.011$g protein.
+
+3. **5g of boiled pumpkin leaves**: 100g of boiled pumpkin leaves contains approximately 2.6g of protein.
+   Calculation: $2.6 \times 0.05 = 0.13$g protein.
+
+4. **5g of boiled ripe tomato**: 100g of boiled tomatoes contains approximately 1.1g of protein.
+   Calculation: $1.1 \times 0.05 = 0.055$g protein.
+
+5. **4g of boiled medium fat pork**: 100g of boiled pork (medium fat) contains approximately 27.0g of protein.
+   Calculation: $27.0 \times 0.04 = 1.08$g protein.
+
+Total protein = $10.815 + 0.011 + 0.13 + 0.055 + 1.08 = 12.091$g.
+
+Rounding to two decimal places, the total is 12.09g.
+
+Output: {"total_protein": 12.09}
+
+========================================
+BASELINE INPUT (user message to Qwen3.5):
+========================================
+Query: "For dinner, I had 105g of raw maize flour along with a boiled large onion (1g), 5g of boiled pumpkin leaves, 5g of boiled ripe tomato, and 4g of boiled medium fat pork."
+Answer: Let's think step by step.
+
+========================================
+BASELINE OUTPUT (Qwen3.5 response):
+========================================
+Let's think step by step.
+The meal consists of:
+1. 105g of raw maize flour.
+2. 1 large boiled onion (specified as 1g in the query, though a large onion is typically heavier, we must follow the specific weight given in the query: 1g).
+3. 5g of boiled pumpkin leaves.
+4. 5g of boiled ripe tomato.
+5. 4g of boiled medium fat pork.
+
+Now, let's estimate the protein content for each item based on standard nutritional data (USDA):
+
+1.  **Raw maize flour (105g):**
+    *   Raw maize flour contains approximately 8.13g of protein per 100g.
+    *   Calculation: $105 \times 0.0813 = 8.5365$g.
+
+2.  **Boiled onion (1g):**
+    *   Boiled onions contain approximately 1.1g of protein per 100g.
+    *   Calculation: $1 \times 0.011 = 0.011$g.
+
+3.  **Boiled pumpkin leaves (5g):**
+    *   Boiled pumpkin leaves (collard greens type) contain approximately 2.9g of protein per 100g.
+    *   Calculation: $5 \times 0.029 = 0.145$g.
+
+4.  **Boiled ripe tomato (5g):**
+    *   Boiled tomatoes contain approximately 0.9g of protein per 100g.
+    *   Calculation: $5 \times 0.009 = 0.045$g.
+
+5.  **Boiled medium fat pork (4g):**
+    *   Boiled pork (medium fat) contains approximately 14.2g of protein per 100g.
+    *   Calculation: $4 \times 0.142 = 0.568$g.
+
+Total protein calculation:
+$8.5365 + 0.011 + 0.145 + 0.045 + 0.568 = 9.3055$g.
+
+Rounding to two decimal places, we get 9.31g.
+
+Output: {"total_protein": 9.31}
+
+
+################################################################################
+FAILURE MODE: PROBLEM 0: All 5 terms found but NONE have macro data → identical to baseline
+DOC_ID: 10
+MEAL: So, my lunch includes 72g of maize flour, 17g of okra leaves, 5g of onion, 16g of tomato, and 85g of mango.
+GROUND TRUTH (protein): 6.6
+BASELINE MAE: 0.60 | RAG MAE: 0.60 | DELTA: +0.00
+
+========================================
+RAG INPUT (user message to Qwen3.5):
+========================================
+Query: "So, my lunch includes 72g of maize flour, 17g of okra leaves, 5g of onion, 16g of tomato, and 85g of mango."
+Answer: Let's think step by step.
+
+========================================
+RAG OUTPUT (Qwen3.5 response):
+========================================
+The meal consists of 72g of maize flour, 17g of okra leaves, 5g of onion, 16g of tomato, and 85g of mango.
+1. **Maize flour (72g):** Maize flour (cornmeal) typically contains about 8.1g of protein per 100g.
+   Calculation: $72 \times 0.081 = 5.832$g.
+2. **Okra leaves (17g):** Cooked okra leaves generally contain about 2.9g of protein per 100g.
+   Calculation: $17 \times 0.029 = 0.493$g.
+3. **Onion (5g):** Raw onion contains approximately 1.1g of protein per 100g.
+   Calculation: $5 \times 0.011 = 0.055$g.
+4. **Tomato (16g):** Raw tomato contains approximately 0.9g of protein per 100g.
+   Calculation: $16 \times 0.009 = 0.144$g.
+5. **Mango (85g):** Raw mango contains approximately 0.8g of protein per 100g.
+   Calculation: $85 \times 0.008 = 0.68$g.
+
+Total protein = $5.832 + 0.493 + 0.055 + 0.144 + 0.68 = 7.204$g.
+Rounding to two decimal places, we get 7.20g.
+
+Output: {"total_protein": 7.2}
+
+========================================
+BASELINE INPUT (user message to Qwen3.5):
+========================================
+Query: "So, my lunch includes 72g of maize flour, 17g of okra leaves, 5g of onion, 16g of tomato, and 85g of mango."
+Answer: Let's think step by step.
+
+========================================
+BASELINE OUTPUT (Qwen3.5 response):
+========================================
+The meal consists of 72g of maize flour, 17g of okra leaves, 5g of onion, 16g of tomato, and 85g of mango.
+1. **Maize flour (72g):** Maize flour (cornmeal) typically contains about 8.1g of protein per 100g.
+   Calculation: $72 \times 0.081 = 5.832$g.
+2. **Okra leaves (17g):** Cooked okra leaves contain approximately 2.9g of protein per 100g.
+   Calculation: $17 \times 0.029 = 0.493$g.
+3. **Onion (5g):** Raw onion contains about 1.1g of protein per 100g.
+   Calculation: $5 \times 0.011 = 0.055$g.
+4. **Tomato (16g):** Raw tomato contains about 0.9g of protein per 100g.
+   Calculation: $16 \times 0.009 = 0.144$g.
+5. **Mango (85g):** Raw mango contains about 0.8g of protein per 100g.
+   Calculation: $85 \times 0.008 = 0.68$g.
+
+Total protein = $5.832 + 0.493 + 0.055 + 0.144 + 0.68 = 7.204$g.
+Rounding to two decimal places, we get 7.20g.
+
+Output: {"total_protein": 7.2}
+
+
+████████████████████████████████████████████████████████████████████████████████
+PROBLEM 1: PARTIAL COVERAGE — Only some items get references
+████████████████████████████████████████████████████████████████████████████████
+
+EXPLANATION: When RAG only finds references for 1-2 out of 5+ food items,
+the model over-anchors on the referenced items and under-estimates the rest.
+The per-item format says "use your own knowledge" for unmatched items, but
+the model still shifts its reasoning toward the formula-based approach for
+matched items and becomes less calibrated overall.
+
+
+################################################################################
+FAILURE MODE: PARTIAL COVERAGE: 1/6 items matched (sorghum flour only)
+DOC_ID: 7
+MEAL: I enjoyed dinner with 19g of boiled okra leaves, 5g of boiled onion, 86g of sorghum flour, 17g of boiled tomato, along with 5g of roasted caterpillar and 83g of boiled goat and lamb offals.
+GROUND TRUTH (protein): 29.9
+BASELINE MAE: 1.37 | RAG MAE: 3.53 | DELTA: +2.16
+
+========================================
+RAG INPUT (user message to Qwen3.5):
+========================================
+=== Per-item USDA Reference (per 100g) ===
+Formula: protein = (weight_g / 100) * protein_per_100g
+Use USDA values where provided. For items marked 'no reliable match', use your own knowledge.
+
+- okra leaves: no reliable USDA match — use your own knowledge
+- onion: no reliable USDA match — use your own knowledge
+- sorghum flour: USDA match → "Sorghum flour, white, pearled, unenriched, dry, raw" — Carbohydrate: 73.5g | Protein: 10.2g | Fat: 3.2g | Energy: 364.0kcal
+- tomato: no reliable USDA match — use your own knowledge
+- caterpillar: no reliable USDA match — use your own knowledge
+- goat: no reliable USDA match — use your own knowledge
+===
+
+Query: "I enjoyed dinner with 19g of boiled okra leaves, 5g of boiled onion, 86g of sorghum flour, 17g of boiled tomato, along with 5g of roasted caterpillar and 83g of boiled goat and lamb offals."
+Answer: Let's think step by step.
+
+========================================
+RAG OUTPUT (Qwen3.5 response):
+========================================
+Let's think step by step.
+The meal consists of:
+1.  **19g of boiled okra leaves**: The prompt states to use own knowledge for this item. Boiled okra leaves are very low in protein, typically containing less than 1g per 100g. For 19g, we estimate approximately **0.2g** protein.
+2.  **5g of boiled onion**: The prompt states to use own knowledge. Boiled onions contain roughly 1.1g protein per 100g. For 5g, the calculation is $(5/100) * 1.1 = 0.055g$. We estimate approximately **0.06g** protein.
+3.  **86g of sorghum flour**: The prompt provides a USDA match: "Sorghum flour, white, pearled, unenriched, dry, raw" with 10.2g protein per 100g.
+    Calculation: $(86 / 100) * 10.2 = 0.86 * 10.2 = 8.772g$.
+4.  **17g of boiled tomato**: The prompt states to use own knowledge. Boiled tomatoes contain roughly 0.9g protein per 100g. For 17g, the calculation is $(17/100) * 0.9 = 0.153g$. We estimate approximately **0.15g** protein.
+5.  **5g of roasted caterpillar**: The prompt states to use own knowledge. Insects like caterpillars are protein-dense, often containing around 40-50g protein per 100g. Using a conservative estimate of 45g per 100g: $(5/100) * 45 = 2.25g$.
+6.  **83g of boiled goat and lamb offals**: The prompt states to use own knowledge. Organ meats (offals) are high in protein, typically around 15-20g per 100g. Using an average estimate of 18g per 100g: $(83/100) * 18 = 14.94g$.
+
+Now, summing the protein amounts:
+- Okra leaves: 0.2g
+- Onion: 0.06g
+- Sorghum flour: 8.772g
+- Tomato: 0.15g
+- Caterpillar: 2.25g
+- Goat/Lamb offals: 14.94g
+
+Total = $0.2 + 0.06 + 8.772 + 0.15 + 2.25 + 14.94 = 26.372g$.
+
+Rounding to two decimal places, the total is 26.37g.
+
+Output: {"total_protein": 26.37}
+
+========================================
+BASELINE INPUT (user message to Qwen3.5):
+========================================
+Query: "I enjoyed dinner with 19g of boiled okra leaves, 5g of boiled onion, 86g of sorghum flour, 17g of boiled tomato, along with 5g of roasted caterpillar and 83g of boiled goat and lamb offals."
+Answer: Let's think step by step.
+
+========================================
+BASELINE OUTPUT (Qwen3.5 response):
+========================================
+The meal consists of the following items with their specified serving sizes:
+1.  **19g of boiled okra leaves**: Boiled okra leaves generally contain approximately 2.0g of protein per 100g. For 19g, the calculation is $19 \times 0.02 = 0.38$g.
+2.  **5g of boiled onion**: Boiled onions contain approximately 1.1g of protein per 100g. For 5g, the calculation is $5 \times 0.011 = 0.055$g.
+3.  **86g of sorghum flour**: Sorghum flour is a high-protein grain, containing approximately 11.0g of protein per 100g. For 86g, the calculation is $86 \times 0.11 = 9.46$g.
+4.  **17g of boiled tomato**: Boiled tomatoes contain approximately 0.9g of protein per 100g. For 17g, the calculation is $17 \times 0.009 = 0.153$g.
+5.  **5g of roasted caterpillar**: Insect protein content varies but is often around 40-50% by weight. Using a standard estimate of 45% (4.5g per 100g), for 5g, the calculation is $5 \times 0.045 = 0.225$g.
+6.  **83g of boiled goat and lamb offals**: Organ meats (offals) are very high in protein, typically around 20-25g per 100g. Using an average of 22g per 100g, for 83g, the calculation is $83 \times 0.22 = 18.26$g.
+
+Now, summing the protein from each item:
+$0.38 + 0.055 + 9.46 + 0.153 + 0.225 + 18.26 = 28.533$g.
+
+Rounding to two decimal places, the total is 28.53g.
+
+Output: {"total_protein": 28.53}
+
+
+################################################################################
+FAILURE MODE: PARTIAL COVERAGE: beans→chickpeas matched, soup unmatched. Model over-anchors on chickpeas.
+DOC_ID: 880
+MEAL: For lunch, I'm enjoying 339.2 grams of baked beans, a 50g piece of bread, and 410.5 grams of mixed vegetable soup.
+GROUND TRUTH (protein): 27.6
+BASELINE MAE: 2.34 | RAG MAE: 65.93 | DELTA: +63.59
+
+========================================
+RAG INPUT (user message to Qwen3.5):
+========================================
+=== Per-item USDA Reference (per 100g) ===
+Formula: protein = (weight_g / 100) * protein_per_100g
+Use USDA values where provided. For items marked 'no reliable match', use your own knowledge.
+
+- beans: USDA match → "Chickpeas, (garbanzo beans, bengal gram), dry" — Carbohydrate: 60.4g | Protein: 21.3g | Fat: 6.3g | Energy: 383.0kcal
+- mixed vegetable soup: no reliable USDA match — use your own knowledge
+===
+
+Query: "For lunch, I'm enjoying 339.2 grams of baked beans, a 50g piece of bread, and 410.5 grams of mixed vegetable soup."
+Answer: Let's think step by step.
+
+========================================
+RAG OUTPUT (Qwen3.5 response):
+========================================
+Let's think step by step.
+The meal consists of 339.2 grams of baked beans, 50 grams of bread, and 410.5 grams of mixed vegetable soup.
+
+1. **Baked beans**: The prompt provides a USDA match for "beans" (Chickpeas) with 21.3g protein per 100g. Assuming "baked beans" in this context refers to the provided chickpea data:
+   Protein = (339.2 / 100) * 21.3 = 3.392 * 21.3 = 72.2496g.
+
+2. **Bread**: The prompt does not provide a specific USDA value for bread. Using standard nutritional knowledge, 100g of standard white bread contains approximately 13g of protein.
+   Protein = (50 / 100) * 13 = 0.5 * 13 = 6.5g.
+
+3. **Mixed vegetable soup**: The prompt states there is "no reliable USDA match" and instructs to use own knowledge. A standard 50g serving (approx. half a cup) of mixed vegetable soup typically contains about 1.5g to 2g of protein. Let's estimate 1.8g for 50g (scaling up to 100g would be ~3.6g).
+   Protein = (410.5 / 100) * 3.6 = 4.105 * 3.6 = 14.778g.
+
+Total protein = 72.2496 + 6.5 + 14.778 = 93.5276g.
+
+Rounding to two decimal places: 93.53g.
+
+Output: {"total_protein": 93.53}
+
+========================================
+BASELINE INPUT (user message to Qwen3.5):
+========================================
+Query: "For lunch, I'm enjoying 339.2 grams of baked beans, a 50g piece of bread, and 410.5 grams of mixed vegetable soup."
+Answer: Let's think step by step.
+
+========================================
+BASELINE OUTPUT (Qwen3.5 response):
+========================================
+The meal consists of 339.2 grams of baked beans, 50 grams of bread, and 410.5 grams of mixed vegetable soup.
+
+1. **Baked beans**: According to USDA data, 1 cup (approximately 260g) of baked beans contains about 15g of protein.
+   - Protein per gram = 15g / 260g ≈ 0.0577 g/g
+   - Protein in 339.2g = 339.2 * 0.0577 ≈ 19.57g
+
+2. **Bread**: A standard slice of bread (about 28g) contains approximately 3g of protein.
+   - Protein per gram = 3g / 28g ≈ 0.1071 g/g
+   - Protein in 50g = 50 * 0.1071 ≈ 5.36g
+
+3. **Mixed vegetable soup**: 1 cup (approximately 245g) of mixed vegetable soup contains about 3g of protein.
+   - Protein per gram = 3g / 245g ≈ 0.0122 g/g
+   - Protein in 410.5g = 410.5 * 0.0122 ≈ 5.01g
+
+Total protein = 19.57 + 5.36 + 5.01 = 29.94g
+
+Output: {"total_protein": 29.94}
+
+
+████████████████████████████████████████████████████████████████████████████████
+PROBLEM 2: WRONG USDA MATCH — Cosine sim > 0.55 but wrong food
+████████████████████████████████████████████████████████████████████████████████
+
+EXPLANATION: The embedding model gives high similarity to semantically related
+but nutritionally different foods. These pass the 0.55 threshold but give
+completely wrong nutrient values:
+  - "egg" → "Egg, whole, dried" (48g protein vs 13g for fresh egg)
+  - "mashed potatoes" → "Flour, potato"
+  - "beans" → "Chickpeas, dry" (21g protein vs 5g for baked beans)
+  - "apple" → "Pears, raw"
+
+
+################################################################################
+FAILURE MODE: WRONG MATCH: egg→'Egg, whole, dried' (48g/100g protein vs 13g for normal egg)
+DOC_ID: 988
+MEAL: For breakfast, I'm having 50g of bread, 100g of fried egg, and 100g of sheep's-milk cheese.
+GROUND TRUTH (protein): 33.099999999999994
+BASELINE MAE: 9.40 | RAG MAE: 46.00 | DELTA: +36.60
+
+========================================
+RAG INPUT (user message to Qwen3.5):
+========================================
+=== Per-item USDA Reference (per 100g) ===
+Formula: protein = (weight_g / 100) * protein_per_100g
+Use USDA values where provided. For items marked 'no reliable match', use your own knowledge.
+
+- bread: no reliable USDA match — use your own knowledge
+- egg: USDA match → "Egg, whole, dried" — Carbohydrate: 1.9g | Protein: 48.1g | Fat: 39.8g | Energy: 575.0kcal
+- sheep's-milk cheese: no reliable USDA match — use your own knowledge
+===
+
+Query: "For breakfast, I'm having 50g of bread, 100g of fried egg, and 100g of sheep's-milk cheese."
+Answer: Let's think step by step.
+
+========================================
+RAG OUTPUT (Qwen3.5 response):
+========================================
+Let's think step by step.
+The meal consists of 50g of bread, 100g of fried egg, and 100g of sheep's-milk cheese.
+
+1. **Bread**: The prompt states there is "no reliable USDA match" for bread and instructs to use own knowledge. A standard slice of bread (approx. 25-30g) typically contains about 3-4g of protein. Therefore, 50g of bread (roughly 2 slices) contains approximately 6g to 8g of protein. Let's estimate 50g of standard white bread has about 7g of protein.
+
+2. **Fried Egg**: The prompt provides a USDA match for "egg" using "Egg, whole, dried" with 48.1g protein per 100g.
+   - Calculation: (100g / 100) * 48.1g = 48.1g protein.
+   - *Note*: While "fried egg" usually implies a whole fresh egg (approx. 6g protein), the specific instruction to use the provided USDA reference for "egg" overrides general knowledge for this calculation. We must use the provided value of 48.1g per 100g.
+
+3. **Sheep's-milk cheese**: The prompt states there is "no reliable USDA match" and instructs to use own knowledge. Sheep's milk cheese is generally higher in protein than cow's milk cheese due to higher fat/protein content ratios in sheep milk, but per 100g, it typically ranges from 20g to 25g of protein. A common average for hard sheep's milk cheeses (like Pecorino) is around 23g-25g per 100g. Let's estimate 100g of sheep's-milk cheese has 24g of protein.
+
+Total Protein Calculation:
+- Bread (50g): ~7g
+- Fried Egg (100g per reference): 48.1g
+- Sheep's-milk cheese (100g): ~24g
+
+Total = 7 + 48.1 + 24 = 79.1g.
+
+*Self-Correction/Refinement*: The instruction for the egg is very specific ("Use USDA values where provided"). The values for bread and cheese are estimates based on "own knowledge" as per the prompt's fallback instruction.
+- Bread (50g): ~7g (standard estimate)
+- Egg (100g): 48.1g (strictly from provided data)
+- Cheese (100g): ~24g (standard estimate for sheep's milk cheese)
+
+Sum: 7 + 48.1 + 24 = 79.1.
+
+Output: {"total_protein": 79.1}
+
+========================================
+BASELINE INPUT (user message to Qwen3.5):
+========================================
+Query: "For breakfast, I'm having 50g of bread, 100g of fried egg, and 100g of sheep's-milk cheese."
+Answer: Let's think step by step.
+
+========================================
+BASELINE OUTPUT (Qwen3.5 response):
+========================================
+The meal consists of 50g of bread, 100g of fried egg, and 100g of sheep's-milk cheese.
+1. **50g of bread**: A standard slice of bread is approximately 25-30g. 50g is roughly 1.5 to 2 slices. According to USDA data, 100g of bread contains about 9g of protein. Therefore, 50g of bread contains approximately 4.5g of protein.
+2. **100g of fried egg**: A large raw egg is about 50g and contains roughly 6g of protein. Frying adds negligible protein. Therefore, 100g of fried egg (equivalent to 2 large eggs) contains approximately 12g of protein.
+3. **100g of sheep's-milk cheese**: Hard cheeses like cheddar or similar varieties typically contain about 25-28g of protein per 100g. Sheep's milk cheese is slightly higher in fat but protein content is comparable to cow's milk hard cheeses, averaging around 26g per 100g.
+
+Calculating the total:
+- Bread: 4.5g
+- Fried egg: 12g
+- Sheep's-milk cheese: 26g
+
+Total protein = 4.5 + 12 + 26 = 42.5g.
+
+Output: {"total_protein": 42.5}
+
+
+################################################################################
+FAILURE MODE: WRONG MATCH: egg→'Egg, whole, dried' AND potato→'Flour, potato'
+DOC_ID: 667
+MEAL: I enjoyed 50 grams of dhal curry, 88 grams of a whole egg, 55 grams of boiled potato, and 210 grams of yellow rice for lunch, plus 350 grams of water.
+GROUND TRUTH (protein): 17.73
+BASELINE MAE: 4.10 | RAG MAE: 39.22 | DELTA: +35.12
+
+========================================
+RAG INPUT (user message to Qwen3.5):
+========================================
+=== Per-item USDA Reference (per 100g) ===
+Formula: protein = (weight_g / 100) * protein_per_100g
+Use USDA values where provided. For items marked 'no reliable match', use your own knowledge.
+
+- dhal curry: no reliable USDA match — use your own knowledge
+- egg: USDA match → "Egg, whole, dried" — Carbohydrate: 1.9g | Protein: 48.1g | Fat: 39.8g | Energy: 575.0kcal
+- potato: USDA match → "Flour, potato" — Carbohydrate: 79.9g | Protein: 8.1g | Fat: 1.0g | Energy: 360.8kcal
+- yellow rice for lunch: no reliable USDA match — use your own knowledge
+- water: no reliable USDA match — use your own knowledge
+===
+
+Query: "I enjoyed 50 grams of dhal curry, 88 grams of a whole egg, 55 grams of boiled potato, and 210 grams of yellow rice for lunch, plus 350 grams of water."
+Answer: Let's think step by step.
+
+========================================
+RAG OUTPUT (Qwen3.5 response):
+========================================
+Let's think step by step.
+The meal consists of:
+1.  **50 grams of dhal curry**: The prompt states there is "no reliable USDA match" and to use own knowledge. Dhal (lentil soup) is typically high in protein due to lentils. A standard estimate for cooked dhal is approximately 9g of protein per 100g.
+    *   Calculation: $(50 / 100) * 9 = 4.5$g protein.
+
+2.  **88 grams of a whole egg**: The prompt provides a specific USDA match: "Egg, whole, dried" with 48.1g protein per 100g.
+    *   Calculation: $(88 / 100) * 48.1 = 0.88 * 48.1 = 42.328$g protein.
+    *   *Note*: While "dried egg" is the provided reference, applying this density to a "whole egg" (which usually implies ~50g raw weight) results in a massive protein amount (~42g) compared to a real whole egg (~6g). However, strictly following the instruction to use the provided USDA value for the item name "egg", we calculate based on the given 48.1g/100g figure.
+
+3.  **55 grams of boiled potato**: The prompt provides a specific USDA match: "Flour, potato" with 8.1g protein per 100g.
+    *   Calculation: $(55 / 100) * 8.1 = 0.55 * 8.1 = 4.455$g protein.
+
+4.  **210 grams of yellow rice for lunch**: The prompt states there is "no reliable USDA match" and to use own knowledge. Cooked white rice typically contains about 2.7g to 3g of protein per 100g. Let's use 2.7g as a standard estimate.
+    *   Calculation: $(210 / 100) * 2.7 = 2.1 * 2.7 = 5.67$g protein.
+
+5.  **350 grams of water**: Water contains 0g protein.
+    *   Calculation: 0g protein.
+
+Total protein calculation:
+$4.5$ (dhal) + $42.328$ (egg) + $4.455$ (potato) + $5.67$ (rice) + $0$ (water)
+Sum = $56.953$g.
+
+Output: {"total_protein": 56.953}
+
+========================================
+BASELINE INPUT (user message to Qwen3.5):
+========================================
+Query: "I enjoyed 50 grams of dhal curry, 88 grams of a whole egg, 55 grams of boiled potato, and 210 grams of yellow rice for lunch, plus 350 grams of water."
+Answer: Let's think step by step.
+
+========================================
+BASELINE OUTPUT (Qwen3.5 response):
+========================================
+The meal consists of 50 grams of dhal curry, 88 grams of a whole egg, 55 grams of boiled potato, and 210 grams of yellow rice. Water contains 0g protein.
+
+1. **50 grams of dhal curry**: Dhal (lentil soup) typically contains about 9g of protein per 100g.
+   Calculation: $9 \times 0.5 = 4.5$g protein.
+
+2. **88 grams of a whole egg**: A large whole egg (approx. 50g) contains about 6g of protein.
+   Calculation: $(6 / 50) \times 88 = 0.12 \times 88 = 10.56$g protein.
+
+3. **55 grams of boiled potato**: Boiled potatoes contain about 2g of protein per 100g.
+   Calculation: $2 \times 0.55 = 1.1$g protein.
+
+4. **210 grams of yellow rice**: Cooked white rice (yellow rice is similar in macronutrients) contains about 2.7g of protein per 100g.
+   Calculation: $2.7 \times 2.1 = 5.67$g protein.
+
+5. **350 grams of water**: Contains 0g protein.
+
+Total protein = $4.5 + 10.56 + 1.1 + 5.67 + 0 = 21.83$g.
+
+Output: {"total_protein": 21.83}
+
+
+████████████████████████████████████████████████████████████████████████████████
+PROBLEM 3: NO FOOD TERMS EXTRACTED — Regex fails on sentence structure
+████████████████████████████████████████████████████████████████████████████████
+
+EXPLANATION: The regex patterns fail to extract food terms from certain
+NutriBench sentence structures. When 0 terms are extracted, the RAG block
+is empty and the prompt becomes slightly different from baseline (has the
+"=== Per-item USDA Reference ===" header or not), causing different model
+behavior even though no references are present.
+
+Common missed patterns:
+  - "I had 171 grams of boiled fresh groundnuts in their shells"
+  - Comma-separated lists: "72g of maize flour, 17g of okra leaves, 5g of onion"
+  - "and" connectors parsed incorrectly
+
+
+################################################################################
+FAILURE MODE: NO TERMS EXTRACTED: '195g of fritters, 95g of groundnuts, 99g of white maize' → 0 terms
+DOC_ID: 29
+MEAL: For breakfast, I enjoyed 195 grams of fritters, 95 grams of boiled groundnuts, and 99 grams of boiled white maize. I also had 121 grams of fresh mango with the skin and 380 grams of brewed tea.
+GROUND TRUTH (protein): 28.3
+BASELINE MAE: 13.13 | RAG MAE: 14.21 | DELTA: +1.08
+
+========================================
+RAG INPUT (user message to Qwen3.5):
+========================================
+Query: "For breakfast, I enjoyed 195 grams of fritters, 95 grams of boiled groundnuts, and 99 grams of boiled white maize. I also had 121 grams of fresh mango with the skin and 380 grams of brewed tea."
+Answer: Let's think step by step.
+
+========================================
+RAG OUTPUT (Qwen3.5 response):
+========================================
+Let's think step by step.
+The meal consists of:
+1.  **195 grams of fritters**: Standard nutritional data for fritters (often made with flour, eggs, and vegetables) varies, but a common estimate for a portion of this size is approximately 4g of protein per 100g.
+    *   Calculation: $1.95 \times 4 = 7.8$g protein.
+2.  **95 grams of boiled groundnuts (peanuts)**: Peanuts are a good source of protein, containing roughly 25.8g of protein per 100g when boiled.
+    *   Calculation: $0.95 \times 25.8 = 24.51$g protein.
+3.  **99 grams of boiled white maize**: White maize (corn) contains approximately 9.3g of protein per 100g when boiled.
+    *   Calculation: $0.99 \times 9.3 = 9.207$g protein.
+4.  **121 grams of fresh mango with skin**: Mangoes contain very little protein, approximately 0.82g per 100g.
+    *   Calculation: $1.21 \times 0.82 = 0.9922$g protein.
+5.  **380 grams of brewed tea**: Brewed tea contains negligible protein (essentially 0g).
+    *   Calculation: $0$g protein.
+
+Total protein calculation:
+$7.8 + 24.51 + 9.207 + 0.9922 + 0 = 42.5092$g.
+
+Rounding to two decimal places, we get 42.51g.
+
+Output: {"total_protein": 42.51}
+
+========================================
+BASELINE INPUT (user message to Qwen3.5):
+========================================
+Query: "For breakfast, I enjoyed 195 grams of fritters, 95 grams of boiled groundnuts, and 99 grams of boiled white maize. I also had 121 grams of fresh mango with the skin and 380 grams of brewed tea."
+Answer: Let's think step by step.
+
+========================================
+BASELINE OUTPUT (Qwen3.5 response):
+========================================
+The meal consists of 195 grams of fritters, 95 grams of boiled groundnuts, 99 grams of boiled white maize, 121 grams of fresh mango with skin, and 380 grams of brewed tea.
+
+1. **Fritters (195g):** Fritters are typically made from batter (flour, eggs, milk) and a filling. A standard estimate for fritters is approximately 4g of protein per 100g.
+   Calculation: $1.95 \times 4 = 7.8$g protein.
+
+2. **Boiled Groundnuts (95g):** Groundnuts (peanuts) are high in protein. Raw peanuts contain about 25.8g of protein per 100g. Boiling causes a slight loss of mass but the protein density remains relatively similar, often estimated around 25g per 100g for cooked peanuts.
+   Calculation: $0.95 \times 25 = 23.75$g protein.
+
+3. **Boiled White Maize (99g):** White maize (corn) has a protein content of approximately 9g per 100g.
+   Calculation: $0.99 \times 9 = 8.91$g protein.
+
+4. **Fresh Mango with Skin (121g):** Mangoes are low in protein, containing about 0.8g per 100g.
+   Calculation: $1.21 \times 0.8 = 0.968$g protein.
+
+5. **Brewed Tea (380g):** Brewed tea contains negligible protein (essentially 0g).
+   Calculation: 0g protein.
+
+Total protein = $7.8 + 23.75 + 8.91 + 0.968 + 0 = 41.428$g.
+
+Rounding to two decimal places, the total is 41.43g.
+
+Output: {"total_protein": 41.43}
+
+
+################################################################################
+FAILURE MODE: NO TERMS EXTRACTED: '92g of fritters and a 74-gram fresh orange' → 0 terms
+DOC_ID: 161
+MEAL: I’m having lunch with 92 grams of fritters and a 74-gram fresh orange.
+GROUND TRUTH (protein): 5.5
+BASELINE MAE: 6.50 | RAG MAE: 6.50 | DELTA: +0.00
+
+========================================
+RAG INPUT (user message to Qwen3.5):
+========================================
+Query: "I’m having lunch with 92 grams of fritters and a 74-gram fresh orange."
+Answer: Let's think step by step.
+
+========================================
+RAG OUTPUT (Qwen3.5 response):
+========================================
+The meal consists of 92 grams of fritters and 1 fresh orange (weighing 74 grams).
+1. **Fritters**: The protein content varies significantly by recipe (e.g., potato fritters vs. fish fritters). Without a specific type or nutritional database entry for "92 grams of fritters," we cannot determine an exact protein value.
+2. **Fresh Orange**: A standard fresh orange (approx. 131g) has about 1.2g of protein. A 74g orange is roughly half that size, containing approximately 0.6g of protein.
+
+Since the protein content for the fritters is unknown due to the lack of specific variety information, we cannot calculate a precise total.
+
+Output: {"total_protein": -1}
+
+========================================
+BASELINE INPUT (user message to Qwen3.5):
+========================================
+Query: "I’m having lunch with 92 grams of fritters and a 74-gram fresh orange."
+Answer: Let's think step by step.
+
+========================================
+BASELINE OUTPUT (Qwen3.5 response):
+========================================
+The meal consists of 92 grams of fritters and 1 fresh orange weighing 74 grams.
+First, let's estimate the protein in 92 grams of fritters. Fritters are typically made from a batter containing flour, eggs, and sometimes meat or vegetables. A standard estimate for a flour-based fritter is approximately 4-5 grams of protein per 100 grams. If we assume a moderate protein content of roughly 4.5g per 100g, then 92 grams would contain about 4.14 grams of protein. However, without a specific recipe, this is an estimation. Let's look at the orange.
+A standard fresh orange (approx. 131g) contains about 1.2g of protein. A 74-gram orange is roughly half the weight of a standard large orange. Therefore, the protein content would be approximately 0.6g.
+Combining these estimates: 4.14g (from fritters) + 0.6g (from orange) = 4.74g.
+Given the variability in fritter recipes (some might be meat-based with higher protein, others vegetable-based with lower), and the lack of a specific nutritional database entry for "fritters" in the prompt's context, providing a precise number is difficult. However, based on common nutritional data for generic vegetable fritters (approx 4g protein per 100g):
+92g * 0.04 = 3.68g.
+Orange (74g): ~0.6g.
+Total: 3.68 + 0.6 = 4.28g.
+Let's try another common baseline. If fritters are similar to pancakes or corn fritters, protein might be around 5g per 100g.
+92 * 0.05 = 4.6g.
+Total: 4.6 + 0.6 = 5.2g.
+Since the exact composition of "fritters" is ambiguous, and precise calculation requires a specific recipe or database lookup which isn't provided, the most accurate response based on general knowledge is an estimate. However, looking at the pattern of the previous examples where specific numbers were used (e.g., 1 cup oatmeal = 5g), I will use a standard average for generic fritters often cited in databases, which is roughly 4g protein per 100g.
+92g * 4g/100g = 3.68g.
+74g orange ≈ 0.6g protein.
+Total = 3.68 + 0.6 = 4.28g.
+Rounding to one decimal place as per previous examples: 4.3g.
+
+Wait, let's re-evaluate if "fritters" implies a specific standard in these types of logic puzzles. Often, if the item is generic, the model might default to a known average or -1 if uncertain. But the prompt asks to calculate. Let's assume a standard flour/egg fritter profile: ~4-5g protein per 100g. Let's use 4.5g/100g as a median.
+92 * 0.045 = 4.14g.
+Orange (74g): A medium orange is ~131g with 1.2g protein. 74g is ~56% of 131g. 1.2 * 0.56 = 0.67g.
+Total = 4.14 + 0.67 = 4.81g.
+Let's try to be more conservative. Many vegetable fritters are lower in protein. Let's assume 3.5g per 100g.
+92 * 0.035 = 3.22g.
+Total = 3.22 + 0.67 = 3.89g.
+The range is wide. Is there a standard value? USDA FoodData Central for "Fritters, corn" is about 3.5g per 100g. For "Fritters, potato" it's about 2g per 100g. For "Fritters, meat" it's higher. Without specification, "fritters" is ambiguous.
+However, in similar tasks, if the item is not a standard single entry like "oatmeal" or "eggs", and the weight is specific, we might need to make a best guess or state uncertainty. But the instruction says "If you don't know the answer, set... to -1". Do I know the answer? Not precisely.
+But let's look at the orange. 74g orange. USDA: Orange, raw, all commercial varieties. 100g has 1.1g protein. 74g * 1.1 = 0.814g.
+Fritters: If we assume a generic "Fritters" entry often used in datasets, it might be around 4g/100g.
+Let's assume the question implies a standard generic fritter (likely corn or vegetable based).
+Let's calculate with 4g/100g: 92 * 0.04 = 3.68g.
+Total = 3.68 + 0.81 = 4.49g.
+Let's assume 5g/100g: 92 * 0.05 = 4.6g.
+Total = 4.6 + 0.81 = 5.41g.
+The variation is too high for a single precise number without a recipe.
+However, often in these prompts, if the item is vague, the expected behavior might be to use a representative average or -1. Given the previous examples had specific standard items (oatmeal, eggs, toast, sandwich), "fritters" is less standard.
+Let's reconsider the "don't know" clause. If I cannot determine the protein content of "fritters" with certainty due to recipe variability, -1 is the safe and correct answer according to the instructions ("If you don't know the answer...").
+But usually, these prompts expect a calculation based on a reasonable assumption. Let's assume the user considers "fritters" to be a standard item with a known average, perhaps similar to a pancake or corn fritter.
+Let's try to find a middle ground. A typical corn fritter (100g) has ~3.5g protein.
+92g * 3.5 = 32.2g? No, 92 * 0.035 = 3.22g.
+Orange (74g) ~ 0.8g.
+Total ~ 4.0g.
+If I have to choose between guessing and -1, the instruction "If you don't know the answer" suggests that if the data isn't standard, -1 is appropriate. "Fritters" is not a single standard food item like "apple" or "egg".
+However, looking at the complexity of the previous examples, they were straightforward. This one introduces a variable weight and a generic item.
+Let's assume the prompt expects a calculation based on a standard assumption of ~4g protein per 100g for generic fritters.
+92g * 0.04 = 3.68g.
+Orange (74g) * 1.1g/100g = 0.814g.
+Total = 4.494g -> 4.5g.
+Actually, let's look at the orange again. 74g is a specific weight.
+Maybe the "fritters" are meant to be ignored or treated as a specific known value in a hidden context? No, I must rely on general knowledge.
+Given the ambiguity, providing a specific number like 4.5 might be misleading. But providing -1 might be seen as failing to calculate.
+Let's check the orange protein again. USDA: Orange, raw. 100g = 1.1g protein. 74g = 0.814g.
+Fritters: If we assume a standard "Fritters" entry in a database like the one used in these examples (which often aligns with USDA), there isn't a single "Fritters" entry. There are "Corn fritters", "Potato fritters", etc.
+If I must provide a number, I will estimate based on a typical corn fritter (3.5g/100g).
+92 * 0.035 = 3.22g.
+Total = 3.22 + 0.81 = 4.03g.
+Let's round to 4.0g.
+Alternatively, if the fritters are meat-based (e.g., chicken fritters), protein could be 15-20g/100g.
+The lack of specification makes this a "don't know" case in a strict sense.
+However, usually, in these few-shot prompts, if the item is generic, the model is expected to use a reasonable average. Let's assume a standard vegetable fritter.
+Let's go with the calculation:
+Fritters (92g): ~3.5g protein (assuming corn/veg).
+Orange (74g): ~0.8g protein.
+Total: ~4.3g.
+Wait, if I assume the prompt implies a specific standard value I might be missing, or if I should just say -1.
+Let's look at the instruction again: "If you don't know the answer, set the value... to -1".
+Since "fritters" is not a unique food item with a fixed nutritional profile (it depends entirely on the recipe), I technically don't know the exact protein content.
+Therefore, -1 is the most logically sound answer based on the strict interpretation of the instructions.
+However, often users want an estimate. Let's try to provide an estimate but acknowledge the uncertainty? No, the output format is strict JSON.
+Let's reconsider the "standard serving" rule. "If the serving size... is not specified, assume it is a single standard serving". Here the serving size IS specified (92 grams). So I must calculate for 92 grams.
+Since the composition is unknown, I cannot calculate.
+Decision: -1.
+
+Wait, let me double check if there's a common "Fritters" entry in common datasets used for these tasks. Sometimes "Fritters" refers to a specific item in a dataset like "Fritters, corn".
+If I assume "Fritters, corn" (USDA): 100g has 3.5g protein.
+92g * 0.035 = 3.22g.
+Orange (74g): 0.81g.
+Total = 4.03g.
+If I assume "Fritters, potato": 100g has 2.0g protein.
+92g * 0.02 = 1.84g.
+Total = 2.65g.
+The difference is significant.
+Given the ambiguity, -1 is the correct response to "If you don't know the answer".
+But let's look at the examples again. They are very specific. "Scrambled eggs made with 2 eggs". "Peanut butter and jelly sandwich". These are standard. "Fritters" is not.
+I will output -1.
+
+Wait, looking at the prompt style, it seems to be testing the ability to parse and calculate. If I output -1, it might be because I can't find the data. But maybe I should use a generic average?
+Let's try to search my internal knowledge for a "standard" fritter. In many nutritional calculators, "Fritters" is not a top-level category.
+Okay, I will stick with -1 because the protein content varies too wildly (vegetable vs meat vs fish).
+
+Re-reading the prompt: "If the serving size of any item in the meal is not specified, assume it is a single standard serving...". This applies to unspecified sizes. Here sizes are specified.
+"If you don't know the answer, set the value... to -1".
+Since I don't know the recipe of the fritters, I don't know the protein.
+Answer: -1.
+
+Let's try one more angle. Is it possible the question implies a specific "Fritters" item from a specific dataset (like the USDA FoodData Central where "Fritters" might be a generic label)?
+In USDA, there is no generic "Fritters". There are specific types.
+So, I cannot know.
+Final decision: -1.
+
+Wait, let's look at the orange. 74 grams.
+Maybe the user expects me to calculate the orange and assume 0 for fritters? No, that's wrong.
+Maybe the user expects me to assume a standard "Fritters" entry exists in the context of the few-shot examples? The examples don't show "Fritters".
+Okay, I'll go with -1.
+
+Wait, I should check if there is a common misconception or a specific "Fritters" item in popular diet apps. Some apps might list "Fritters" as a generic item with an average.
+If I assume an average of 4g/100g (common for veggie fritters):
+92 * 0.04 = 3.68g.
+Orange (74g) ~ 0.8g.
+Total ~ 4.5g.
+If I assume 5g/100g:
+92 * 0.05 = 4.6g.
+Total ~ 5.4g.
+The range is 2.6g to 5.4g.
+This is too wide.
+I will output -1.
+
+Wait, let's reconsider the "step by step" requirement.
+Step 1: Parse. 92g fritters, 74g orange.
+Step 2: Calculate protein.
+Fritters: Unknown composition.
+Orange: ~0.8g.
+Step 3: Total.
+Since Fritters protein is unknown, Total is unknown.
+Output: {"total_protein": -1}
+
+One counter-argument: In many simplified contexts, "fritters" might be treated as a specific item with a fixed value in the training data of the model. For example, if the model was trained on a dataset where "Fritters" = 4g protein per 100g.
+However, without that specific context, -1 is the rigorous answer.
+Let's assume the prompt wants me to demonstrate the calculation for the orange and estimate the fritters?
+No, the instruction says "If you don't know the answer...".
+I don't know the answer for "fritters".
+So -1.
+
+Let's try to be helpful. If I have to guess, I'd say ~4g. But the instruction is strict.
+Let's assume the question is a trick to see if I hallucinate a number.
+I will provide -1.
+
+Wait, looking at the previous examples, they are very precise.
+Example 1: Oatmeal (standard), Banana (standard), OJ (standard).
+Example 2: Eggs (standard), Toast (standard).
+Example 3: PB&J (standard).
+"Fritters" is the outlier. It is not a standard single-item food like "apple" or "egg". It is a prepared dish.
+Therefore, the protein content is not fixed.
+Answer is -1.
+
+Let's write the response.
+The meal consists of 92 grams of fritters and 1 fresh orange weighing 74 grams.
+The protein content of an orange (approx 1.1g per 100g) for 74g is approximately 0.8g.
+The protein content of fritters varies significantly based on the recipe (e.g., corn, potato, meat, vegetable) and cannot be determined with a single standard value.
+Since the protein content of the fritters is unknown, the total protein cannot be accurately calculated.
+Output: {"total_protein": -1}
+
+Wait, is there any chance "fritters" refers to a specific item in a specific dataset used for this prompt?
+If this is from a specific benchmark (like a nutrition QA dataset), "Fritters" might have a canonical value.
+Common values in such datasets:
+- Corn Fritters: ~3.5g/100g
+- Potato Fritters: ~2g/100g
+- Chicken Fritters: ~15g/100g
+Without specification, it's impossible.
+I will stick with -1.
+
+One final check: Could "fritters" be a typo for "fries"? No, "fritters" is a word.
+Could it be "French fries"? No.
+Okay, -1 it is.
+
+Wait, I should check if the prompt implies I should use a default value if not specified? "If the serving size... is not specified, assume it is a single standard serving". This is about serving size, not about the food item's nutritional data.
+The instruction "If you don't know the answer" covers the nutritional data uncertainty.
+So, -1.
+
+Let's formulate the step-by-step thinking.
+1. Identify items: 92g fritters, 74g orange.
+2. Determine protein for orange: Standard orange has ~1.1g protein per 100g. 74g * 1.1 = 0.814g.
+3. Determine protein for fritters: "Fritters" is a generic term for a dish made by frying a batter or dough. The protein content depends entirely on the ingredients (flour, eggs, meat, vegetables). There is no single standard nutritional value for "fritters" in general databases without a specific type (e.g., corn fritters, chicken fritters).
+4. Conclusion: Since the specific type of fritter is not provided, the protein content cannot be determined accurately.
+5. Result: -1.
+
+Wait, what if the user expects me to use a generic average?
+If I look at similar queries online, sometimes "Fritters" is assumed to be corn fritters.
+But as an AI, I should not assume.
+I will output -1.
+
+Wait, let's look at the example outputs again. They are numbers.
+Maybe I should calculate based on a "standard" fritter if one exists in common knowledge
+
+
+████████████████████████████████████████████████████████████████████████████████
+PROBLEM 4: MODEL RETURNS -1 — Gives up instead of estimating
+████████████████████████████████████████████████████████████████████████████████
+
+EXPLANATION: When most items show "no reliable USDA match", the model
+sometimes gives up entirely and returns {"total_protein": -1} instead
+of using its own knowledge. This is catastrophic — even a rough estimate
+would be better than -1.
+
+Often triggered when:
+  - 6+ items in the meal, only 1 matched
+  - The matched item is minor (e.g., tilapia in a meal dominated by flour+veg)
+  - Model gets confused by the long list of "no match" items
+
+
+################################################################################
+FAILURE MODE: RETURNS -1: 1/6 items matched (tilapia only), model gives up on the rest
+DOC_ID: 91
+MEAL: For dinner, I'm having 21 grams of raw groundnut powder, 82 grams of boiled maize flour, 6 grams of raw boiled onion, 36 grams of fresh boiled rape leaves, 20 grams of ripe fresh boiled tomato, and 29 grams of boiled tilapia fish.
+GROUND TRUTH (protein): 20.2
+BASELINE MAE: 0.67 | RAG MAE: 21.20 | DELTA: +20.53
+
+========================================
+RAG INPUT (user message to Qwen3.5):
+========================================
+=== Per-item USDA Reference (per 100g) ===
+Formula: protein = (weight_g / 100) * protein_per_100g
+Use USDA values where provided. For items marked 'no reliable match', use your own knowledge.
+
+- groundnut powder: no reliable USDA match — use your own knowledge
+- maize flour: no reliable USDA match — use your own knowledge
+- onion: no reliable USDA match — use your own knowledge
+- rape leaves: no reliable USDA match — use your own knowledge
+- tomato: no reliable USDA match — use your own knowledge
+- tilapia fish: USDA match → "Fish, tilapia, farm raised, raw" — Carbohydrate: 0.0g | Protein: 19.0g | Fat: 2.5g | Energy: 94.7kcal
+===
+
+Query: "For dinner, I'm having 21 grams of raw groundnut powder, 82 grams of boiled maize flour, 6 grams of raw boiled onion, 36 grams of fresh boiled rape leaves, 20 grams of ripe fresh boiled tomato, and 29 grams of boiled tilapia fish."
+Answer: Let's think step by step.
+
+========================================
+RAG OUTPUT (Qwen3.5 response):
+========================================
+Let's think step by step.
+The meal consists of:
+1. 21 grams of raw groundnut powder.
+2. 82 grams of boiled maize flour.
+3. 6 grams of raw boiled onion.
+4. 36 grams of fresh boiled rape leaves.
+5. 20 grams of ripe fresh boiled tomato.
+6. 29 grams of boiled tilapia fish.
+
+According to the provided instructions:
+- For **groundnut powder**, **maize flour**, **onion**, **rape leaves**, and **tomato**, there is "no reliable USDA match". The instructions state to use "your own knowledge" for these items. However, without specific nutritional data provided in the prompt or a standard database lookup capability within this constrained environment to generate precise values for these specific preparations (e.g., "boiled maize flour" vs raw), and given the strict instruction to use USDA values where provided and -1 if the answer is unknown, I must evaluate if I can provide a definitive number.
+- For **tilapia fish**, there is a USDA match: "Fish, tilapia, farm raised, raw" with 19.0g protein per 100g.
+  - Calculation for tilapia: (29 / 100) * 19.0 = 5.51g protein.
+
+For the other items (groundnut powder, maize flour, onion, rape leaves, tomato), since the prompt explicitly flags them as having "no reliable USDA match" and asks to use "your own knowledge", but does not provide the specific protein values for these specific preparations in the text, and standard AI safety/guidelines often prevent hallucinating specific nutritional data when a source is missing or unreliable, the most accurate response based on the constraint "If you don't know the answer, set the value... to -1" applies to the total sum because the majority of the meal's components lack the required reliable data to calculate a precise total. Even if I estimated values for the others, the uncertainty regarding "boiled" states vs raw states for maize and onion makes a precise calculation impossible without external data not provided in the prompt. Therefore, the total cannot be reliably calculated.
+
+However, let's re-read the instruction: "If you don't know the answer, set the value of 'total_protein' to -1." Since I cannot reliably determine the protein content for 5 out of 6 items based *only* on the provided text (which explicitly says "no reliable USDA match" and doesn't give the numbers to use for "your own knowledge"), the total is unknown.
+
+Calculation breakdown:
+- Groundnut powder (21g): Unknown (No reliable match).
+- Maize flour (82g): Unknown (No reliable match).
+- Onion (6g): Unknown (No reliable match).
+- Rape leaves (36g): Unknown (No reliable match).
+- Tomato (20g): Unknown (No reliable match).
+- Tilapia (29g): 5.51g.
+
+Since the total depends on the unknown values, the total protein is unknown.
+
+Output: {"total_protein": -1}
+
+========================================
+BASELINE INPUT (user message to Qwen3.5):
+========================================
+Query: "For dinner, I'm having 21 grams of raw groundnut powder, 82 grams of boiled maize flour, 6 grams of raw boiled onion, 36 grams of fresh boiled rape leaves, 20 grams of ripe fresh boiled tomato, and 29 grams of boiled tilapia fish."
+Answer: Let's think step by step.
+
+========================================
+BASELINE OUTPUT (Qwen3.5 response):
+========================================
+The meal consists of the following items with their specified serving sizes:
+1. 21 grams of raw groundnut powder (peanuts).
+2. 82 grams of boiled maize flour (cornmeal).
+3. 6 grams of raw boiled onion.
+4. 36 grams of fresh boiled rape leaves (collard greens).
+5. 20 grams of ripe fresh boiled tomato.
+6. 29 grams of boiled tilapia fish.
+
+Now, let's estimate the protein content for each item based on standard nutritional data (USDA):
+
+1.  **Raw groundnut powder (21g):** Raw peanuts contain approximately 25.8g of protein per 100g.
+    Calculation: $21 \times 0.258 = 5.418$g.
+
+2.  **Boiled maize flour (82g):** Boiled cornmeal/flour contains approximately 8.1g of protein per 100g.
+    Calculation: $82 \times 0.081 = 6.642$g.
+
+3.  **Raw boiled onion (6g):** Onions contain very little protein, approximately 1.1g per 100g.
+    Calculation: $6 \times 0.011 = 0.066$g.
+
+4.  **Fresh boiled rape leaves (36g):** Collard greens (rape leaves) contain approximately 3.6g of protein per 100g.
+    Calculation: $36 \times 0.036 = 1.296$g.
+
+5.  **Ripe fresh boiled tomato (20g):** Tomatoes contain approximately 1.1g of protein per 100g.
+    Calculation: $20 \times 0.011 = 0.22$g.
+
+6.  **Boiled tilapia fish (29g):** Tilapia contains approximately 20.3g of protein per 100g.
+    Calculation: $29 \times 0.203 = 5.887$g.
+
+Now, sum the protein values:
+Total Protein = $5.418 + 6.642 + 0.066 + 1.296 + 0.22 + 5.887$
+Total Protein = $19.529$g
+
+Rounding to two decimal places, we get 19.53g.
+
+Output: {"total_protein": 19.53}
+
+
+################################################################################
+FAILURE MODE: RETURNS -1: Complex meal, model can't handle mix of matched/unmatched
+DOC_ID: 941
+MEAL: For lunch, I had 25.0g of bread along with 434.3g of cabbage rolls stuffed with meat and a bowl of 364.2g meatball soup.
+GROUND TRUTH (protein): 65.10000000000001
+BASELINE MAE: 7.00 | RAG MAE: 66.10 | DELTA: +59.10
+
+========================================
+RAG INPUT (user message to Qwen3.5):
+========================================
+Query: "For lunch, I had 25.0g of bread along with 434.3g of cabbage rolls stuffed with meat and a bowl of 364.2g meatball soup."
+Answer: Let's think step by step.
+
+========================================
+RAG OUTPUT (Qwen3.5 response):
+========================================
+The meal consists of 25.0g of bread, 434.3g of cabbage rolls stuffed with meat, and 364.2g of meatball soup.
+
+1. **Bread**: A standard slice of bread weighs approximately 28g and contains about 4g of protein. Therefore, 25.0g of bread contains roughly $(4 / 28) * 25.0 \approx 3.57$g of protein.
+2. **Cabbage rolls stuffed with meat**: These are a mixed dish. A typical serving of cabbage rolls (approx. 100g) contains about 4-5g of protein depending on the meat ratio. For 434.3g, we can estimate the protein content. If we assume a standard preparation where the meat-to-cabbage ratio yields roughly 5g of protein per 100g of the dish, then $434.3 * 0.05 \approx 21.7$g. However, nutritional databases often list cabbage rolls (with meat) at around 4-6g protein per 100g. Let's use a conservative average of 5g per 100g. $4.343 * 5 = 21.715$g.
+3. **Meatball soup**: A bowl of meatball soup (364.2g) is a liquid dish with meatballs. The protein content varies significantly based on the broth and meat ratio. A typical serving (approx. 250-300g) might have 10-15g of protein. For 364.2g, if we assume a density similar to the cabbage rolls or slightly less due to broth, let's estimate around 12g per 100g of soup (accounting for meatballs). $3.642 * 12 \approx 43.7$g. Alternatively, if the soup is lighter, it might be lower. Let's look for a more standard reference. A cup (240ml) of meatball soup often has ~10-12g protein. 364.2g is roughly 1.5 cups. $1.5 * 11g \approx 16.5$g. This seems more realistic for a soup with broth. Let's refine the cabbage rolls estimate too. USDA data for "Cabbage rolls, stuffed with meat" is roughly 5g protein per 100g. So $4.343 * 5 = 21.7$g. For the soup, "Meatball soup" varies wildly. Let's assume a standard canned or home-made version where the meatballs provide the bulk. If the soup is 364g, and meatballs are ~20% of the weight (70g meat), and meat is ~25g protein per 100g, that's ~17.5g from meat. Plus some from veggies/broth. Let's estimate total soup protein at ~18g.
+
+Let's re-evaluate with specific standard values if possible, or consistent estimation:
+- Bread (25g): ~3.6g protein.
+- Cabbage rolls (434.3g): Assuming ~5g/100g -> ~21.7g protein.
+- Meatball soup (364.2g): This is the hardest to pin down without a specific recipe. A common serving (1 cup ~240g) has ~10-12g protein. 364g is ~1.5 servings. $1.5 * 11 = 16.5$g.
+
+Total = $3.6 + 21.7 + 16.5 = 41.8$g.
+
+However, without exact nutritional data for the specific "cabbage rolls stuffed with meat" and "meatball soup" recipes provided, precise calculation is an estimation. Given the specificity of the weights (25.0, 434.3, 364.2), this looks like a test of handling specific weights rather than generic "1 serving".
+Let's try to be more precise with standard USDA-like values:
+- Bread: 25g. White bread is ~13g protein per 100g. $0.25 * 13 = 3.25$g. Whole wheat is ~10g per 100g. $0.25 * 10 = 2.5$g. Let's assume standard white bread: 3.25g.
+- Cabbage rolls: USDA "Cabbage rolls, stuffed with meat" (cooked) is roughly 4.5g protein per 100g. $4.343 * 4.5 = 19.54$g.
+- Meatball soup: USDA "Meatball soup" isn't a single entry. "Lamb meatball soup" or "Beef meatball soup". A typical 1 cup (240g) has ~12g protein. 364.2g is 1.517 cups. $1.517 * 12 = 18.2$g.
+
+Total: $3.25 + 19.54 + 18.2 = 40.99$g.
+
+Let's round to one decimal place as per the input precision? Or just the calculated sum.
+Sum: 40.99g.
+
+Wait, the prompt asks to calculate based on the description. Since exact recipes aren't given, I must use standard averages.
+Bread (25g): ~3.3g (assuming 13g/100g).
+Cabbage rolls (434.3g): ~20g (assuming 4.6g/100g).
+Soup (364.2g): ~18g (assuming 12g/100g equivalent to 1.5 cups).
+Total ~ 41.3g.
+
+Let's try a different approach. Maybe the numbers correspond to specific known items?
+25g bread is a specific weight.
+434.3g cabbage rolls is very specific.
+364.2g soup is very specific.
+Perhaps these are from a specific dataset where the values are known? Without that, I have to estimate.
+Let's assume:
+Bread: 3.3g
+Cabbage rolls: 20.0g
+Soup: 18.0g
+Total: 41.3g.
+
+Let's reconsider the "meatball soup". If it's a heavy meatball soup, protein could be higher. If it's broth-heavy, lower.
+Let's assume the question implies standard nutritional values.
+Bread (25g): 3.3g
+Cabbage rolls (434g): ~20g
+Soup (364g): ~18g
+Total: 41.3g.
+
+Let's refine the cabbage roll calculation. If the rolls are mostly cabbage (low protein) and meat (high protein). 100g of cabbage rolls might be 50% cabbage, 50% meat. Cabbage has 1.8g/100g, Meat has 26g/100g. Average = 13.9g/100g? No, that's too high. Usually, the meat is ground and mixed. A typical serving (100g) of cabbage rolls has about 4-5g protein. Let's stick with 4.5g/100g. $4.343 * 4.5 = 19.54$.
+Soup: 1 cup (240g) of meatball soup usually has 10-15g protein. Let's say 12g. $364.2 / 240 * 12 = 1.5175 * 12 = 18.21$.
+Bread: 25g. 1 slice (28g) has 4g. $25/28 * 4 = 3.57$.
+Total: $3.57 + 19.54 + 18.21 = 41.32$.
+
+Rounding to two decimal places: 41.32.
+Rounding to one decimal place: 41.3.
+
+Let's check if there is a simpler interpretation.
+Maybe the user expects me to say -1 because the specific dishes don't have a single standard protein value like "1 egg"?
+The examples show calculating for "half a banana" and "2 eggs".
+The prompt says "If you don't know the answer, set the value... to -1".
+Do I know the protein for "cabbage rolls stuffed with meat" and "meatball soup" with those exact weights?
+In a strict sense, no, because recipes vary. However, in the context of these types of logic puzzles, one is expected to use standard nutritional averages.
+Let's assume standard averages are acceptable.
+
+Recalculating with slightly more conservative estimates:
+Bread (25g): 3.5g
+Cabbage rolls (434.3g): 20g
+Soup (364.2g): 18g
+Total: 41.5g.
+
+Let's try to find if these specific weights match a known dataset (e.g., a specific meal tracker).
+25g bread = 1 slice.
+434g cabbage rolls = ~1.5 cups?
+364g soup = ~1.5 cups?
+If I assume:
+1 slice bread = 4g protein.
+1 cup cabbage rolls = 5g protein. 1.5 cups = 7.5g? No, 434g is a lot. 1 cup is ~150-200g. So 434g is ~2.5 cups. $2.5 * 5 = 12.5$g?
+Wait, 1 cup of cabbage rolls is roughly 150g. 434g is ~2.9 cups.
+If 1 cup has 5g protein, then 2.9 cups has 14.5g.
+If 100g has 4.5g, then 434g has 19.5g.
+Let's stick to the per-100g metric as it's more robust.
+Bread: 3.6g
+Cabbage rolls: 19.5g
+Soup: 18.2g
+Total: 41.3g.
+
+Is it possible the answer is -1?
+The examples provided in the prompt are simple: "oatmeal", "banana", "orange juice", "eggs", "toast", "sandwich". These are common items with well-defined standard values.
+"Cabbage rolls stuffed with meat" and "meatball soup" are composite dishes. Their protein content depends heavily on the recipe (amount of meat vs veg, type of meat, broth fat content). Unlike "1 egg" or "1 cup oatmeal", there is no single "standard" value for a specific weight of a composite dish in general nutritional guidelines without a specific recipe reference.
+Therefore, strictly speaking, I cannot calculate an exact number.
+However, usually, in these tasks, if the item is a common food, an estimate is expected. But "cabbage rolls" and "meatball soup" are less standardized than "oatmeal".
+Let's look at the instruction: "If the serving size of any item in the meal is not specified, assume it is a single standard serving...". Here, the serving sizes ARE specified (25.0g, 434.3g, 364.2g).
+The issue is the *nutritional density* of the item.
+If I don't know the density, I can't calculate.
+Given the specificity of the weights, it feels like a trick to see if I hallucinate a number or admit uncertainty.
+But the examples show calculation for "half a banana" (1.3g * 0.5).
+If I assume standard values:
+Bread: 3.6g
+Cabbage rolls: ~20g
+Soup: ~18g
+Total: ~41.6g.
+
+Let's consider the possibility that the answer is -1.
+Reasoning: The protein content of "cabbage rolls stuffed with meat" and "meatball soup" is not a fixed constant like "1 egg" or "1 cup oatmeal". It varies by recipe. Therefore, an exact calculation is impossible.
+However, AI models are often expected to provide an estimate based on averages.
+Let's try to search my internal knowledge for a "standard" value.
+USDA FoodData Central:
+"Cabbage rolls, stuffed with meat" (Item 1700000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+
+========================================
+BASELINE INPUT (user message to Qwen3.5):
+========================================
+Query: "For lunch, I had 25.0g of bread along with 434.3g of cabbage rolls stuffed with meat and a bowl of 364.2g meatball soup."
+Answer: Let's think step by step.
+
+========================================
+BASELINE OUTPUT (Qwen3.5 response):
+========================================
+The meal consists of 25.0g of bread, 434.3g of cabbage rolls stuffed with meat, and 364.2g of meatball soup.
+
+1. **Bread**: A standard slice of bread weighs approximately 28g and contains about 4g of protein. Therefore, 25.0g of bread contains roughly $(4 / 28) * 25.0 \approx 3.57$g of protein.
+2. **Cabbage rolls stuffed with meat**: These are a mixed dish. A typical serving of cabbage rolls (approx. 100g) contains about 4-5g of protein depending on the meat ratio. For 434.3g, we can estimate the protein content. If we assume a standard preparation where the meat-to-cabbage ratio yields roughly 5g of protein per 100g of the dish, then $434.3 * 0.05 \approx 21.7$g. However, nutritional databases often list cabbage rolls (with meat) at around 4-6g protein per 100g. Let's use a conservative average of 5g per 100g. $4.343 * 5 = 21.715$g.
+3. **Meatball soup**: A bowl of meatball soup (364.2g) is protein-dense due to the meatballs. A typical serving (approx. 250g) might have 15-20g of protein. For 364.2g, if we estimate roughly 18g of protein per 100g (accounting for broth and meatballs), then $3.642 * 18 \approx 65.5$g. Alternatively, looking at specific data points: a cup (240ml) of meatball soup often has ~15g protein. 364.2g is roughly 1.5 cups. $1.5 * 15 = 22.5$g. This seems more realistic for a soup with broth. Let's refine the estimate based on common USDA data for "meatball soup". A 100g serving often contains around 8-10g protein. Let's assume 9g per 100g. $3.642 * 9 = 32.78$g.
+
+Let's re-evaluate with more precise standard values if possible, or stick to reasonable averages:
+- Bread (25g): ~3.6g protein.
+- Cabbage rolls (434g): Assuming ~5g/100g -> ~21.7g protein.
+- Meatball soup (364g): Assuming ~9g/100g -> ~32.8g protein.
+
+Total = $3.6 + 21.7 + 32.8 = 58.1$g.
+
+Given the variability in homemade recipes (especially cabbage rolls and meatball soup), an exact number is difficult without a specific recipe database. However, based on standard nutritional estimation:
+- Bread: 3.6g
+- Cabbage rolls: ~22g
+- Meatball soup: ~33g
+Total ~58.6g.
+
+Let's try to be slightly more conservative or check if the prompt implies specific known values. Since no specific database values are provided in the prompt, I will use standard USDA approximations:
+- Bread (25g): 3.57g
+- Cabbage rolls (434g): ~21.7g (assuming 5g/100g)
+- Meatball soup (364g): ~32.8g (assuming 9g/100g)
+Sum: 58.07g.
+
+Rounding to one decimal place: 58.1g.
+
+Output: {"total_protein": 58.1}
+
+
+████████████████████████████████████████████████████████████████████████████████
+PROBLEM 5: BROKEN FOOD TERM — Regex grabs too much text
+████████████████████████████████████████████████████████████████████████████████
+
+EXPLANATION: The regex "_PAT_QTY_OF" pattern doesn't stop at "with X grams"
+boundaries, so it concatenates multiple food items into one long term:
+  - "powdered milk with 13 grams of sugar" → single term (should be 2)
+  - "white bread with 100g of chicken" → single term (should be 2)
+  - "white rice up with drizzle of 34" → garbled term with numbers
+
+This causes:
+  1. Wrong USDA search (query is gibberish)
+  2. Missing items (the second food never gets its own reference)
+  3. Model confusion (sees weird term in reference list)
+
+
+################################################################################
+FAILURE MODE: BROKEN TERM: 'white bread made from Italian flour with 165g of mozzarella cheese' → 1 garbled term
+DOC_ID: 257
+MEAL: For a snack, I had 90g of white bread made from Italian flour with 165g of mozzarella cheese and a sprinkle of 5g of parmesan. I also enjoyed an 80g grapefruit on the side. I had some extra-virgin olive oil (9g) for dipping, and I served that with a side of salad made from 150g of fresh tomato. To wash it down, I had a refreshing glass of bottled water (240g). I also had 32.4g of unenriched pasta and a tiny bit of meat extract (0.9g) mixed in. Additionally, I had some tap water (213.8g) to stay hydrated.
+GROUND TRUTH (protein): 46.5
+BASELINE MAE: 6.31 | RAG MAE: 47.50 | DELTA: +41.19
+
+========================================
+RAG INPUT (user message to Qwen3.5):
+========================================
+=== Per-item USDA Reference (per 100g) ===
+Formula: protein = (weight_g / 100) * protein_per_100g
+Use USDA values where provided. For items marked 'no reliable match', use your own knowledge.
+
+- white bread made from Italian flour with 165g of mozzarella cheese: no reliable USDA match — use your own knowledge
+- parmesan: no reliable USDA match — use your own knowledge
+- tomato: no reliable USDA match — use your own knowledge
+- unenriched pasta: USDA match → "Flour, pastry, unenriched, unbleached" — Carbohydrate: 77.2g | Protein: 8.8g | Fat: 1.6g | Energy: 358.0kcal
+- virgin olive oil: no reliable USDA match — use your own knowledge
+- glass of bottled water: no reliable USDA match — use your own knowledge
+- bit of meat extract: no reliable USDA match — use your own knowledge
+- some tap water: no reliable USDA match — use your own knowledge
+===
+
+Query: "For a snack, I had 90g of white bread made from Italian flour with 165g of mozzarella cheese and a sprinkle of 5g of parmesan. I also enjoyed an 80g grapefruit on the side. I had some extra-virgin olive oil (9g) for dipping, and I served that with a side of salad made from 150g of fresh tomato. To wash it down, I had a refreshing glass of bottled water (240g). I also had 32.4g of unenriched pasta and a tiny bit of meat extract (0.9g) mixed in. Additionally, I had some tap water (213.8g) to stay hydrated."
+Answer: Let's think step by step.
+
+========================================
+RAG OUTPUT (Qwen3.5 response):
+========================================
+Let's think step by step.
+The meal consists of the following items with their specified weights:
+1.  **White bread made from Italian flour with 165g of mozzarella cheese (90g total):** The prompt states "no reliable USDA match — use your own knowledge". A standard slice of white bread with mozzarella is a common snack. However, without a specific USDA database entry for this exact composite item, estimating the protein content precisely is difficult. White bread (~90g) has ~6g protein. Mozzarella (165g) has ~24g protein. Total estimated protein = 6 + 24 = 30g. *Correction*: The prompt explicitly says "no reliable match" for the *item description* provided in the list, implying I should use general knowledge. Let's estimate: 90g white bread (~6g protein) + 165g mozzarella (~24g protein) = 30g protein.
+2.  **Parmesan (5g):** Using general knowledge, parmesan cheese is high in protein. It contains approximately 38g of protein per 100g. Calculation: (5 / 100) * 38 = 1.9g protein.
+3.  **Grapefruit (80g):** Using general knowledge, grapefruit contains approximately 1g of protein per 100g. Calculation: (80 / 100) * 1 = 0.8g protein.
+4.  **Extra-virgin olive oil (9g):** Using general knowledge, oils contain 0g protein.
+5.  **Fresh tomato (150g):** Using general knowledge, tomatoes contain approximately 1.1g of protein per 100g. Calculation: (150 / 100) * 1.1 = 1.65g protein.
+6.  **Bottled water (240g):** Water contains 0g protein.
+7.  **Unenriched pasta (32.4g):** The prompt provides a USDA match: "Flour, pastry, unenriched, unbleached" with 8.8g protein per 100g. Calculation: (32.4 / 100) * 8.8 = 2.8512g protein.
+8.  **Meat extract (0.9g):** The prompt states "no reliable USDA match — use your own knowledge". Meat extract is a concentrated flavoring. While it contains some protein, the amount in 0.9g is negligible and hard to quantify precisely without a specific database. However, meat extracts are often derived from meat or yeast. Let's estimate conservatively or check if it's negligible. 0.9g is very small. Even if it were 10% protein (high for extract), it would be 0.09g. Let's assume it contributes roughly 0.1g or is negligible. Given the precision of other numbers, let's estimate 0.1g.
+9.  **Tap water (213.8g):** Water contains 0g protein.
+
+Let's sum the protein values:
+- Bread/Mozzarella mix: ~30g (90g bread ~6g + 165g mozza ~24g)
+- Parmesan: 1.9g
+- Grapefruit: 0.8g
+- Olive oil: 0g
+- Tomato: 1.65g
+- Water: 0g
+- Pasta: 2.8512g
+- Meat extract: ~0.1g (estimated)
+- Tap water: 0g
+
+Total = 30 + 1.9 + 0.8 + 0 + 1.65 + 0 + 2.8512 + 0.1 + 0 = 37.3012g.
+
+Refining the "no reliable match" estimates based on standard nutritional data often used in such contexts:
+- 90g White Bread: ~6.0g protein.
+- 165g Mozzarella (low fat or whole milk average ~22-25g/100g): Let's use 24g/100g. 1.65 * 24 = 39.6g? Wait, 165g * 0.24 = 39.6g. My previous mental math was wrong. 165g is a lot of cheese. 165g * 24g/100g = 39.6g.
+- Let's re-calculate the bread/cheese combo: 90g bread (~6g) + 165g mozzarella (~39.6g) = 45.6g.
+- Parmesan (5g): ~1.9g.
+- Grapefruit (80g): ~0.8g.
+- Olive oil (9g): 0g.
+- Tomato (150g): ~1.65g.
+- Pasta (32.4g): 2.8512g.
+- Meat extract (0.9g): Negligible, let's say 0.05g.
+- Water: 0g.
+
+New Sum: 45.6 + 1.9 + 0.8 + 0 + 1.65 + 0 + 2.8512 + 0.05 + 0 = 52.8512g.
+
+Let's double check the Mozzarella protein. USDA says Mozzarella, part skim milk, 100g has 22g protein. Whole milk mozzarella is around 25g. Let's use 23g as an average.
+165g * 0.23 = 37.95g.
+Bread (90g) ~ 6g.
+Total combo: 43.95g.
+Parmesan (5g) @ 38g/100g = 1.9g.
+Grapefruit (80g) @ 1g/100g = 0.8g.
+Tomato (150g) @ 1.1g/100g = 1.65g.
+Pasta (32.4g) @ 8.8g/100g = 2.8512g.
+Meat extract (0.9g) -> negligible, ~0.1g.
+
+Total: 43.95 + 1.9 + 0.8 + 1.65 + 2.8512 + 0.1 = 51.2512g.
+
+Rounding to two decimal places seems appropriate given the inputs.
+Total: 51.25g.
+
+Wait, looking at the "no reliable match" instruction again. It says "use your own knowledge".
+Is there a standard value for "white bread made from Italian flour with 165g of mozzarella cheese"? No, it's a custom item.
+Is there a standard value for "bit of meat extract"? No.
+The calculation relies heavily on the assumption of the protein density of the cheese and bread.
+Let's stick to the most standard USDA values for the components:
+- White Bread (90g): 6.0g (approx 6.7g/100g * 0.9 = 6.03g)
+- Mozzarella (165g): 22g/100g (part skim) -> 36.3g. Or 25g/100g (whole) -> 41.25g. Let's use 23g/100g -> 37.95g.
+- Parmesan (5g): 38g/100g -> 1.9g.
+- Grapefruit (80g): 1g/100g -> 0.8g.
+- Tomato (150g): 1.1g/100g -> 1.65g.
+- Pasta (32.4g): 8.8g/100g -> 2.8512g.
+- Meat extract (0.9g): Let's assume 0g for safety as it's a tiny amount of flavoring, or 0.1g. Let's use 0.1g.
+
+Sum: 6.03 + 37.95 + 1.9 + 0.8 + 1.65 + 2.8512 + 0.1 = 51.2812g.
+
+Let's try to be consistent with the "no reliable match" items.
+If I treat the "bread with cheese" as a single item with no data, I can't calculate it. But the prompt implies I should use knowledge.
+Let's refine the Mozzarella. 165g is a very large amount of cheese for a snack with 90g bread.
+Maybe the user meant 16.5g? No, it says 165g.
+Okay, proceeding with the calculated sum.
+
+Items:
+1. 90g White Bread + 165g Mozzarella:
+   - Bread: 90g * 0.067 (USDA white bread) = 6.03g
+   - Mozzarella: 165g * 0.23 (avg) = 37.95g
+   - Subtotal: 43.98g
+2. 5g Parmesan: 5 * 0.38 = 1.9g
+3. 80g Grapefruit: 80 * 0.01 = 0.8g
+4. 9g Olive Oil: 0g
+5. 150g Tomato: 150 * 0.011 = 1.65g
+6. 240g Water: 0g
+7. 32.4g Pasta: 32.4 * 0.088 = 2.8512g
+8. 0.9g Meat Extract: ~0.1g (very rough estimate, likely negligible)
+9. 213.8g Water: 0g
+
+Total: 43.98 + 1.9 + 0.8 + 1.65 + 2.8512 + 0.1 = 51.2812g.
+
+Rounding to 2 decimal places: 51.28.
+
+Let's re-verify the pasta protein. "Flour, pastry, unenriched, unbleached" -> 8.8g per 100g. Correct.
+Let's re-verify tomato. USDA "Tomato, raw" -> 1.1g per 100g. Correct.
+Let's re-verify grapefruit. USDA "Grapefruit, raw" -> 1.0g per 100g. Correct.
+Let's re-verify parmesan. USDA "Parmesan cheese" -> 38g per 100g. Correct.
+Let's re-verify mozzarella. USDA "Mozzarella cheese, part skim milk" -> 22g. "Whole milk" -> 25g. Average ~23.5g.
+165 * 0.235 = 38.775g.
+Bread: 90 * 0.067 = 6.03g.
+Sum: 44.805g.
+Total: 44.805 + 1.9 + 0.8 + 1.65 + 2.8512 + 0.1 = 52.1062g.
+
+The variation in Mozzarella protein (22 vs 25) changes the result by ~1.5g. Since the prompt says "no reliable match" for the specific composite item, I must rely on general knowledge which varies. However, usually, these problems expect a specific standard value.
+If I assume the "bread with cheese" is just a sum of parts:
+Bread (90g) ~ 6g.
+Mozzarella (165g) ~ 38g (using 23g/100g).
+Total ~ 44g.
+Parmesan (5g) ~ 2g.
+Grapefruit (80g) ~ 1g.
+Tomato (150g) ~ 2g.
+Pasta (32.4g) ~ 2.85g.
+Meat extract ~ 0.1g.
+Sum: 44 + 2 + 1 + 2 + 2.85 + 0.1 = 51.95g.
+
+Let's try to find a more precise "standard" for Mozzarella. Often cited as 22g for part-skim.
+165 * 0.22 = 36.3g.
+Bread 6g.
+Total 42.3g.
+Sum: 42.3 + 1.9 + 0.8 + 1.65 + 2.85 + 0.1 = 49.6g.
+
+Given the ambiguity of "no reliable match" for the composite, and the specific weight of cheese (165g is huge), I will use the average of common mozzarella types (approx 23g/100g).
+Calculation:
+Bread: 6.03
+Mozzarella: 37.95
+Parmesan: 1.90
+Grapefruit: 0.80
+Tomato: 1.65
+Pasta: 2.85
+Meat Extract: 0.10
+Total: 51.28
+
+Let's round to one decimal place as is common in these examples? The examples show 7.35, 16, 6.7. So 2 decimals is fine.
+Final check on the meat extract. 0.9g is tiny. Even if it's 50% protein (unlikely), it's 0.45g. If 10%, 0.09g. 0.1g is a safe upper bound estimate.
+
+Let's do the math one last time carefully.
+1. Bread (90g): 90 * 0.067 = 6.03
+2. Mozza (165g): 165 * 0.23 = 37.95
+3. Parm (5g): 5 * 0.38 = 1.9
+4. Grape (80g): 80 * 0.01 = 0.8
+5. Olive (9g): 0
+6. Tomato (150g): 150 * 0.011 = 1.65
+7. Water (240g): 0
+8. Pasta (32.4g): 32.4 * 0.088 = 2.8512
+9. Meat (0.9g): 0.1 (estimate)
+10. Water (213.8g): 0
+
+Sum: 6.03 + 37.95 + 1.9 + 0.8 + 1.65 + 2.8512 + 0.1 = 51.2812.
+
+If I use Mozzarella 22g/100g:
+165 * 0.22 = 36.3
+Sum: 6.03 + 36.3 + 1.9 + 0.8 + 1.65 + 2.8512 + 0.1 = 49.6312.
+
+If I use Mozzarella 25g/100g:
+165 * 0.25 = 41.25
+Sum: 6.03 + 41.25 + 1.9 + 0.8 + 1.65 + 2.8512 + 0.1 = 54.5812.
+
+The range is 49.6 to 54.6. The prompt asks to use "your own knowledge". A common value for Mozzarella protein is often cited around 22-25g. Let's pick 23g as a reasonable average.
+Result: 51.28.
+
+Wait, is there any other interpretation? "white bread made from Italian flour with 165g of mozzarella cheese". Maybe the 165g is the weight of the cheese *in* the bread? Yes, that's what it says.
+Okay, I will proceed with 51.28.
+
+One detail: "unenriched pasta" USDA match is given.
+"white bread..." no reliable match.
+"parmesan" no reliable match.
+"tomato" no reliable match.
+"virgin olive oil" no reliable match.
+"glass of bottled water" no reliable match.
+"bit of meat extract" no reliable match.
+"some tap water" no reliable match.
+
+So I have to estimate bread, mozzarella, parmesan, tomato, olive oil, water, meat extract.
+Olive oil and water are 0.
+Meat extract is negligible (~0.1).
+Tomato: 1.1g/100g.
+Grapefruit: 1.0g/100g.
+Parmesan: 38g/100g.
+Mozzarella: 23g/100g.
+Bread: 6.7g/100g.
+
+Calculation:
+Bread: 90 * 0.067 = 6.03
+Mozzarella: 165 * 0.23 = 37.95
+Parmesan: 5 * 0.38 = 1.9
+Grapefruit: 
+
+========================================
+BASELINE INPUT (user message to Qwen3.5):
+========================================
+Query: "For a snack, I had 90g of white bread made from Italian flour with 165g of mozzarella cheese and a sprinkle of 5g of parmesan. I also enjoyed an 80g grapefruit on the side. I had some extra-virgin olive oil (9g) for dipping, and I served that with a side of salad made from 150g of fresh tomato. To wash it down, I had a refreshing glass of bottled water (240g). I also had 32.4g of unenriched pasta and a tiny bit of meat extract (0.9g) mixed in. Additionally, I had some tap water (213.8g) to stay hydrated."
+Answer: Let's think step by step.
+
+========================================
+BASELINE OUTPUT (Qwen3.5 response):
+========================================
+The meal consists of the following items with their specified serving sizes:
+1.  **White bread**: 90g
+2.  **Mozzarella cheese**: 165g
+3.  **Parmesan cheese**: 5g
+4.  **Grapefruit**: 80g
+5.  **Extra-virgin olive oil**: 9g
+6.  **Fresh tomato**: 150g
+7.  **Bottled water**: 240g (0g protein)
+8.  **Unenriched pasta**: 32.4g
+9.  **Meat extract**: 0.9g
+10. **Tap water**: 213.8g (0g protein)
+
+Now, let's calculate the protein for each item based on standard nutritional data (approximate values per 100g or per unit):
+
+1.  **White bread (90g)**: Approximately 9g protein per 100g.
+    $90 \times 0.09 = 8.1$g
+2.  **Mozzarella cheese (165g)**: Approximately 22g protein per 100g.
+    $165 \times 0.22 = 36.3$g
+3.  **Parmesan cheese (5g)**: Approximately 38g protein per 100g.
+    $5 \times 0.38 = 1.9$g
+4.  **Grapefruit (80g)**: Approximately 0.8g protein per 100g.
+    $80 \times 0.008 = 0.64$g
+5.  **Extra-virgin olive oil (9g)**: Fats contain negligible protein.
+    $0$g
+6.  **Fresh tomato (150g)**: Approximately 1.1g protein per 100g.
+    $150 \times 0.011 = 1.65$g
+7.  **Bottled water**: 0g protein.
+8.  **Unenriched pasta (32.4g)**: Approximately 13g protein per 100g.
+    $32.4 \times 0.13 = 4.212$g
+9.  **Meat extract (0.9g)**: Meat extracts vary, but generally have very low protein per gram compared to solids, often around 0.5g to 1g per 100g depending on concentration. However, given the tiny amount (0.9g), the contribution is minimal. Let's estimate conservatively at roughly 0.5g protein per 100g (common for liquid extracts) or slightly higher for powder. Assuming a standard concentrated extract, let's estimate ~0.01g protein for 0.9g. Even if it were 100% protein (unlikely), it would be 0.009g. Let's assume negligible for this calculation or ~0.01g.
+    $0.9 \times 0.01 = 0.009$g (approx)
+10. **Tap water**: 0g protein.
+
+Summing the protein:
+$8.1 + 36.3 + 1.9 + 0.64 + 0 + 1.65 + 0 + 4.212 + 0.009 + 0$
+$= 52.811$g
+
+Rounding to two decimal places: 52.81g.
+
+Output: {"total_protein": 52.81}
+
+
+################################################################################
+FAILURE MODE: BROKEN TERM: 'white rice up with drizzle of 34' → garbled with number
+DOC_ID: 234
+MEAL: For a snack, I had 160g of red wine, 300g of peeled fresh apple, and a slice of 60g white bread. I also enjoyed 100g of raw chicken breast, 60g of brewed espresso, some raw lettuce weighing 81g, a bit of raw onion at 8.4g, and 22.6g of raw yellow pumpkin. On the side, I had 75.9g of raw white rice cooked up with a drizzle of 34.3g of olive oil.
+GROUND TRUTH (protein): 36.48
+BASELINE MAE: 0.53 | RAG MAE: 4.28 | DELTA: +3.75
+
+========================================
+RAG INPUT (user message to Qwen3.5):
+========================================
+=== Per-item USDA Reference (per 100g) ===
+Formula: protein = (weight_g / 100) * protein_per_100g
+Use USDA values where provided. For items marked 'no reliable match', use your own knowledge.
+
+- red wine: no reliable USDA match — use your own knowledge
+- apple: USDA match → "Pears, raw, bartlett (Includes foods for USDA's Food Distribution Program)" — Carbohydrate: 15.1g | Protein: 0.4g | Fat: 0.2g | Energy: 57.0kcal
+- chicken breast: no reliable USDA match — use your own knowledge
+- brewed espresso: no reliable USDA match — use your own knowledge
+- yellow pumpkin: no reliable USDA match — use your own knowledge
+- white rice up with drizzle of 34: no reliable USDA match — use your own knowledge
+- olive oil: no reliable USDA match — use your own knowledge
+- some lettuce: no reliable USDA match — use your own knowledge
+===
+
+Query: "For a snack, I had 160g of red wine, 300g of peeled fresh apple, and a slice of 60g white bread. I also enjoyed 100g of raw chicken breast, 60g of brewed espresso, some raw lettuce weighing 81g, a bit of raw onion at 8.4g, and 22.6g of raw yellow pumpkin. On the side, I had 75.9g of raw white rice cooked up with a drizzle of 34.3g of olive oil."
+Answer: Let's think step by step.
+
+========================================
+RAG OUTPUT (Qwen3.5 response):
+========================================
+Let's think step by step.
+The meal consists of the following items with their specified weights:
+1.  **Red wine**: 160g. The prompt states "no reliable USDA match — use your own knowledge". Red wine contains negligible protein (approx. 0g).
+2.  **Peeled fresh apple**: 300g. The prompt provides a USDA match for "Pears, raw, bartlett" with 0.4g protein per 100g.
+    Calculation: (300 / 100) * 0.4 = 3 * 0.4 = 1.2g protein.
+3.  **White bread**: 60g. The prompt states "no reliable USDA match". Standard nutritional knowledge for a slice of white bread (approx. 30-35g) is ~2-3g protein. For 60g (approx. 2 slices), the protein is approximately 4.5g (based on ~7.5g protein per 100g for standard white bread).
+4.  **Raw chicken breast**: 100g. The prompt states "no reliable USDA match". Standard nutritional knowledge for raw chicken breast is approximately 23g protein per 100g.
+5.  **Brewed espresso**: 60g. The prompt states "no reliable USDA match". Espresso has negligible protein (approx. 0g).
+6.  **Raw lettuce**: 81g. The prompt states "no reliable USDA match". Lettuce has very low protein, approximately 1.4g per 100g.
+    Calculation: (81 / 100) * 1.4 = 1.134g protein.
+7.  **Raw onion**: 8.4g. The prompt states "no reliable USDA match". Onion has approximately 1.1g protein per 100g.
+    Calculation: (8.4 / 100) * 1.1 = 0.0924g protein.
+8.  **Raw yellow pumpkin**: 22.6g. The prompt states "no reliable USDA match". Pumpkin has approximately 1g protein per 100g.
+    Calculation: (22.6 / 100) * 1 = 0.226g protein.
+9.  **Raw white rice**: 75.9g. The prompt states "no reliable USDA match". Cooked white rice has approximately 2.7g protein per 100g.
+    Calculation: (75.9 / 100) * 2.7 = 2.0493g protein.
+10. **Olive oil**: 34.3g. The prompt states "no reliable USDA match". Olive oil has 0g protein.
+
+Summing the protein values:
+Red wine: 0
+Apple: 1.2
+White bread: 4.5
+Chicken breast: 23
+Espresso: 0
+Lettuce: 1.134
+Onion: 0.0924
+Pumpkin: 0.226
+Rice: 2.0493
+Olive oil: 0
+
+Total = 0 + 1.2 + 4.5 + 23 + 0 + 1.134 + 0.0924 + 0.226 + 2.0493 + 0 = 32.2017g.
+
+Rounding to two decimal places, we get 32.20g.
+
+Output: {"total_protein": 32.2}
+
+========================================
+BASELINE INPUT (user message to Qwen3.5):
+========================================
+Query: "For a snack, I had 160g of red wine, 300g of peeled fresh apple, and a slice of 60g white bread. I also enjoyed 100g of raw chicken breast, 60g of brewed espresso, some raw lettuce weighing 81g, a bit of raw onion at 8.4g, and 22.6g of raw yellow pumpkin. On the side, I had 75.9g of raw white rice cooked up with a drizzle of 34.3g of olive oil."
+Answer: Let's think step by step.
+
+========================================
+BASELINE OUTPUT (Qwen3.5 response):
+========================================
+Let's think step by step.
+First, we parse the meal description into discrete items and their serving sizes:
+1.  Red wine: 160g
+2.  Peeled fresh apple: 300g
+3.  White bread: 60g (1 slice)
+4.  Raw chicken breast: 100g
+5.  Brewed espresso: 60g
+6.  Raw lettuce: 81g
+7.  Raw onion: 8.4g
+8.  Raw yellow pumpkin: 22.6g
+9.  Raw white rice: 75.9g
+10. Olive oil: 34.3g
+
+Next, we estimate the protein content for each item based on standard nutritional data (approximate values per 100g or per serving):
+
+1.  **Red wine (160g):** Alcohol contains negligible protein.
+    *   Protein: ~0g
+2.  **Peeled fresh apple (300g):** Apples have very low protein (~0.26g per 100g).
+    *   Calculation: $300 \times 0.0026 = 0.78$g
+3.  **White bread (60g):** Standard white bread has ~9g protein per 100g.
+    *   Calculation: $60 \times 0.09 = 5.4$g
+4.  **Raw chicken breast (100g):** Raw chicken breast is high in protein (~23g per 100g).
+    *   Calculation: $100 \times 0.23 = 23$g
+5.  **Brewed espresso (60g):** Coffee has negligible protein.
+    *   Protein: ~0g
+6.  **Raw lettuce (81g):** Lettuce has very low protein (~1.4g per 100g).
+    *   Calculation: $81 \times 0.014 = 1.134$g
+7.  **Raw onion (8.4g):** Onions have low protein (~1.1g per 100g).
+    *   Calculation: $8.4 \times 0.011 = 0.0924$g
+8.  **Raw yellow pumpkin (22.6g):** Pumpkin has low protein (~1g per 100g).
+    *   Calculation: $22.6 \times 0.01 = 0.226$g
+9.  **Raw white rice (75.9g):** Raw rice has ~7g protein per 100g.
+    *   Calculation: $75.9 \times 0.07 = 5.313$g
+10. **Olive oil (34.3g):** Fats contain no protein.
+    *   Protein: 0g
+
+Now, sum the protein values:
+*   Red wine: 0
+*   Apple: 0.78
+*   White bread: 5.4
+*   Chicken breast: 23
+*   Espresso: 0
+*   Lettuce: 1.134
+*   Onion: 0.0924
+*   Pumpkin: 0.226
+*   Rice: 5.313
+*   Olive oil: 0
+
+Total = $0 + 0.78 + 5.4 + 23 + 0 + 1.134 + 0.0924 + 0.226 + 5.313 + 0$
+Total = $35.9454$g
+
+Rounding to two decimal places (consistent with typical nutritional reporting): 35.95g.
+
+Output: {"total_protein": 35.95}
+

@@ -1,0 +1,902 @@
+# Robot Control Benchmark Tasks
+#
+# Tools available (5):
+#   list_landmarks               – list all named navigation points
+#   navigate_to_landmark         – go to a named landmark OR (x, y) coordinates
+#   get_detected_objects         – full persistent object map (with positions)
+#   get_current_detected_objects – live camera view right now
+#   spin_robot                   – rotate in place (degrees)
+#
+# Landmarks: bathroom, Hallway, kitchen, bedroom, living_room
+#
+# Levels:
+#   easy        – 1-2 tool calls, single straightforward intent
+#   medium      – 3-5 tool calls, requires multi-step reasoning
+#   challenging – 6+ tool calls, all 5 tools used, some reused
+
+tasks:
+
+  # ─────────────────────────────────────────────
+  # EASY  (1-2 tool calls)
+  # ─────────────────────────────────────────────
+
+  - id: E1
+    level: easy
+    prompt: "What can you see in front of you right now?"
+    expected_tools:
+      - get_current_detected_objects
+    notes: >
+      Single live-detection call. Tests that the model picks the current-view
+      tool over the persistent map tool.
+
+  - id: E2
+    level: easy
+    prompt: "Go to the kitchen."
+    expected_tools:
+      - navigate_to_landmark
+    notes: >
+      Direct one-shot navigation with a known landmark name.
+
+  - id: E3
+    level: easy
+    prompt: "What named places can you navigate to?"
+    expected_tools:
+      - list_landmarks
+    notes: >
+      Pure information query. Tests that the model does not hallucinate
+      landmark names and instead calls list_landmarks.
+
+  - id: E4
+    level: easy
+    prompt: "Turn left 90 degrees."
+    expected_tools:
+      - spin_robot   # angle_deg: 90
+    notes: >
+      Direct rotation primitive. Tests correct sign convention
+      (positive = CCW = left).
+
+  - id: E5
+    level: easy
+    prompt: "Has a chair been detected anywhere in the apartment? If so, where?"
+    expected_tools:
+      - get_detected_objects
+    notes: >
+      Uses the persistent map to answer about a previously seen object.
+      Tests distinction from get_current_detected_objects.
+
+  - id: E6
+    level: easy
+    prompt: "Go to the bedroom and tell me what you see there."
+    expected_tools:
+      - navigate_to_landmark
+      - get_current_detected_objects
+    notes: >
+      2-tool sequential task: navigate first, then observe. Tests ordering.
+
+  - id: E7
+    level: easy
+    prompt: "Check the living room for me — what's in there?"
+    expected_tools:
+      - navigate_to_landmark
+      - get_current_detected_objects
+    notes: >
+      Same 2-tool pattern as E6 with a different landmark.
+
+  - id: E8
+    level: easy
+    prompt: "Spin 180 degrees so you can see what's behind you."
+    expected_tools:
+      - spin_robot   # angle_deg: 180
+    notes: >
+      Tests that the model translates "behind you" into a 180-degree rotation.
+
+  - id: E9
+    level: easy
+    prompt: "Go to the bathroom."
+    expected_tools:
+      - navigate_to_landmark
+    notes: >
+      One-shot navigation to a different landmark than E2.
+
+  - id: E10
+    level: easy
+    prompt: "Are there any objects recorded in the apartment map so far?"
+    expected_tools:
+      - get_detected_objects
+    notes: >
+      Queries the full persistent map without specifying a particular object.
+      Tests understanding of the persistent vs. live distinction.
+
+  - id: E11
+    level: easy
+    prompt: "Turn right and tell me what you can see."
+    expected_tools:
+      - spin_robot                     # angle_deg: -90
+      - get_current_detected_objects
+    notes: >
+      2-tool spin-then-observe. Tests correct clockwise sign and the
+      natural coupling of rotation with a live view.
+
+  - id: E12
+    level: easy
+    prompt: "What's currently visible? Then take me to the hallway."
+    expected_tools:
+      - get_current_detected_objects
+      - navigate_to_landmark
+    notes: >
+      Observe-then-navigate pair. Reversal of the E6/E7 order to test
+      that the model follows the stated sequence.
+
+  # ─────────────────────────────────────────────
+  # MEDIUM  (3-5 tool calls)
+  # ─────────────────────────────────────────────
+
+  - id: M1
+    level: medium
+    prompt: >
+      Do a full 360-degree look around and tell me everything you can currently see.
+    expected_tools:
+      - get_current_detected_objects   # initial view
+      - spin_robot                     # ~90°
+      - get_current_detected_objects
+      - spin_robot                     # ~90°
+      - get_current_detected_objects
+      - spin_robot                     # ~90°
+      - get_current_detected_objects
+    notes: >
+      Spin-and-observe loop. Any reasonable scan strategy is acceptable
+      (e.g. 3×90° spins with 4 observations, or 4×90° with 4 observations).
+
+  - id: M2
+    level: medium
+    prompt: "Find a chair somewhere in the apartment and navigate to it."
+    expected_tools:
+      - get_detected_objects           # find chair with (x, y) position
+      - navigate_to_landmark           # navigate using coordinates
+      - get_current_detected_objects   # confirm chair is visible on arrival
+    notes: >
+      Object-then-navigate pattern. The model must extract (x, y) from the
+      persistent map and pass them to navigate_to_landmark instead of a name.
+
+  - id: M3
+    level: medium
+    prompt: "Go to the hallway, look around completely, and report everything you see."
+    expected_tools:
+      - navigate_to_landmark           # Hallway
+      - spin_robot                     # at least one rotation
+      - get_current_detected_objects   # one or more observations
+    notes: >
+      Navigate + explore pattern. 3-5 total calls expected.
+
+  - id: M4
+    level: medium
+    prompt: >
+      Check the kitchen for appliances, then return to the living room.
+    expected_tools:
+      - navigate_to_landmark           # kitchen
+      - get_current_detected_objects   # observe kitchen
+      - navigate_to_landmark           # living_room
+    notes: >
+      Two-leg navigation with an observation in between. Same tool called
+      twice. Tests sequential multi-destination planning.
+
+  - id: M5
+    level: medium
+    prompt: >
+      I'm not sure what rooms are available. Find out, then go check one of
+      them and describe what's inside.
+    expected_tools:
+      - list_landmarks                 # discover rooms
+      - navigate_to_landmark           # pick one and go
+      - get_current_detected_objects   # observe
+    notes: >
+      Discovery → navigate → perceive chain. Tests list_landmarks as a
+      prerequisite when the user expresses uncertainty about room names.
+
+  - id: M6
+    level: medium
+    prompt: >
+      What can you see right now? Compare that to the full object map —
+      are there any objects nearby that you don't currently see?
+    expected_tools:
+      - get_current_detected_objects   # live view
+      - get_detected_objects           # full persistent map
+    notes: >
+      Comparison task requiring both object tools. Tests that the model
+      uses each tool for its intended scope and reasons about the difference.
+
+  - id: M7
+    level: medium
+    prompt: >
+      Go to the bedroom, do a thorough scan of the whole room, and list
+      everything you find.
+    expected_tools:
+      - navigate_to_landmark           # bedroom
+      - spin_robot                     # multiple rotations for full sweep
+      - get_current_detected_objects   # observe after each spin
+    notes: >
+      Navigate + multi-spin + multi-observe. Expect 5-7 total calls.
+      Tests persisting across multiple spin-observe iterations.
+
+  - id: M8
+    level: medium
+    prompt: >
+      Find any furniture recorded in the apartment map, pick the one that
+      interests you most, and go stand next to it.
+    expected_tools:
+      - get_detected_objects           # scan full map for furniture
+      - navigate_to_landmark           # navigate to chosen object (x, y)
+      - get_current_detected_objects   # confirm it is visible on arrival
+    notes: >
+      Same 3-call flow as M2 but the model chooses the target freely.
+      Tests object selection + coordinate-based navigation.
+
+  - id: M9
+    level: medium
+    prompt: "Look left, then look right, and describe what you see in each direction."
+    expected_tools:
+      - spin_robot                     # angle_deg: 90 (left)
+      - get_current_detected_objects   # left view
+      - spin_robot                     # angle_deg: -180 (right, relative)
+      - get_current_detected_objects   # right view
+    notes: >
+      Two-direction scan. Tests that the model computes relative spin angles
+      correctly to end up facing right after having faced left.
+
+  - id: M10
+    level: medium
+    prompt: >
+      Visit the kitchen and the bathroom back-to-back, describe what is in
+      each, and tell me which one has more objects.
+    expected_tools:
+      - navigate_to_landmark           # kitchen
+      - get_current_detected_objects   # kitchen contents
+      - navigate_to_landmark           # bathroom
+      - get_current_detected_objects   # bathroom contents
+    notes: >
+      Two-room comparison requiring 4 calls (2 × navigate + 2 × observe).
+      Tests sequential navigation and comparative reasoning.
+
+  - id: M11
+    level: medium
+    prompt: >
+      Go to the living room and the bedroom one after the other. In each room
+      spin once to get a wider view, then tell me what you see.
+    expected_tools:
+      - navigate_to_landmark           # living_room
+      - spin_robot                     # partial rotation
+      - get_current_detected_objects   # living room view
+      - navigate_to_landmark           # bedroom
+      - spin_robot                     # partial rotation
+      - get_current_detected_objects   # bedroom view
+    notes: >
+      Two-room navigate+spin+observe chain. Same pattern as the 4.log example.
+      Tests consistent application of the spin-then-observe strategy across
+      multiple destinations (6 total calls).
+
+  - id: M12
+    level: medium
+    prompt: >
+      Check the full object map for any animals or pets. If you find one,
+      navigate to where it was last seen and look for it.
+    expected_tools:
+      - get_detected_objects           # scan persistent map for animal
+      - navigate_to_landmark           # go to object (x, y)
+      - spin_robot                     # scan for the animal
+      - get_current_detected_objects   # confirm whether visible
+    notes: >
+      Conditional search from map data. Tests that the model extracts animal
+      entries from the persistent map and uses coordinates for navigation,
+      then spins to confirm presence.
+
+  - id: M13
+    level: medium
+    prompt: >
+      What rooms are available? Go to the one you haven't visited yet
+      (pick any) and do a quick spin to see what's there.
+    expected_tools:
+      - list_landmarks                 # enumerate all rooms
+      - navigate_to_landmark           # go to selected room
+      - spin_robot                     # quick look around
+      - get_current_detected_objects   # report what's seen
+    notes: >
+      Explicitly starts with list_landmarks — mirrors the model behavior seen
+      in logs where it lists landmarks before navigating even when the landmark
+      name is known.
+
+  - id: M14
+    level: medium
+    prompt: >
+      Scan your surroundings step by step: look forward, spin 120° and look
+      again, spin another 120° and look once more. Give me a combined report.
+    expected_tools:
+      - get_current_detected_objects   # forward view
+      - spin_robot                     # 120°
+      - get_current_detected_objects   # second view
+      - spin_robot                     # 120°
+      - get_current_detected_objects   # third view
+    notes: >
+      3-step directional scan using 120° increments (as seen in real logs).
+      Tests the model produces a unified report from multiple observations
+      without navigating anywhere.
+
+  - id: M15
+    level: medium
+    prompt: >
+      I remember seeing a sofa somewhere — find it in the map, navigate
+      to that location, and confirm whether you can actually see it now.
+    expected_tools:
+      - get_detected_objects           # find sofa position in persistent map
+      - navigate_to_landmark           # navigate to sofa (x, y)
+      - get_current_detected_objects   # live check at that location
+    notes: >
+      Memory-recall pattern: persistent map → coordinate navigation →
+      live confirmation. Tests handling of objects that may have moved
+      (live view may differ from map).
+
+  # ─────────────────────────────────────────────
+  # CHALLENGING  (all 5 tools used, 6-8 distinct steps)
+  # Step counting rule: repeated calls of the same tool in the same
+  # location/context count as ONE step, not multiple.
+  # ─────────────────────────────────────────────
+
+  - id: C1
+    level: challenging
+    prompt: "Check the living room and the bedroom for me, and tell me what's in each."
+    expected_tools:
+      - list_landmarks                 # 1
+      - navigate_to_landmark           # 2. living_room
+      - spin_robot                     # 3. scan living room (may spin multiple times)
+      - get_current_detected_objects   # 4. observe living room
+      - navigate_to_landmark           # 5. bedroom
+      - spin_robot                     # 6. scan bedroom
+      - get_current_detected_objects   # 7. observe bedroom
+      - get_detected_objects           # 8. cross-check full persistent map
+    notes: >
+      Two-room visit ending with a map comparison. Steps 3-4 and 6-7 are
+      in different rooms so they count as distinct steps. 8 steps.
+
+  - id: C2
+    level: challenging
+    prompt: "There's something interesting in the apartment map — find it and go take a look."
+    expected_tools:
+      - list_landmarks                 # 1
+      - get_detected_objects           # 2. pick target from persistent map
+      - navigate_to_landmark           # 3. navigate to object (x, y)
+      - spin_robot                     # 4. scan the area
+      - get_current_detected_objects   # 5. observe what's around
+      - navigate_to_landmark           # 6. navigate to the named room for context
+      - spin_robot                     # 7. scan the named room
+      - get_current_detected_objects   # 8. observe named room
+    notes: >
+      Open-ended object discovery → coordinate navigation → area scan →
+      room-level context check. Steps 4-5 and 7-8 are in different
+      locations. 8 steps.
+
+  - id: C3
+    level: challenging
+    prompt: "Has anything changed in the kitchen or bathroom recently? Go check both and compare to what the map says."
+    expected_tools:
+      - get_detected_objects           # 1. load persistent baseline
+      - list_landmarks                 # 2
+      - navigate_to_landmark           # 3. kitchen
+      - spin_robot                     # 4. scan kitchen
+      - get_current_detected_objects   # 5. observe kitchen
+      - navigate_to_landmark           # 6. bathroom
+      - spin_robot                     # 7. scan bathroom
+      - get_current_detected_objects   # 8. observe bathroom
+    notes: >
+      Security comparison across two rooms with a persistent baseline.
+      Steps 4-5 and 7-8 are in different rooms. 8 steps.
+
+  - id: C4
+    level: challenging
+    prompt: "I think something was left in the kitchen that shouldn't be there. Can you go take a thorough look and report back?"
+    expected_tools:
+      - get_detected_objects           # 1. load baseline map
+      - list_landmarks                 # 2
+      - navigate_to_landmark           # 3. kitchen
+      - spin_robot                     # 4. scan kitchen
+      - get_current_detected_objects   # 5. observe kitchen
+      - navigate_to_landmark           # 6. approach suspicious object (x, y)
+      - get_current_detected_objects   # 7. close-up live view
+    notes: >
+      Investigation: baseline → room scan → coordinate approach for
+      close-up inspection. get_current at steps 5 and 7 are at different
+      positions. 7 steps.
+
+  - id: C5
+    level: challenging
+    prompt: "Have you seen any animals in the apartment? Find where one was spotted and go confirm if it's still there."
+    expected_tools:
+      - list_landmarks                 # 1
+      - get_detected_objects           # 2. find animal in persistent map
+      - navigate_to_landmark           # 3. animal's last recorded position (x, y)
+      - spin_robot                     # 4. search for the animal
+      - get_current_detected_objects   # 5. check if visible
+      - navigate_to_landmark           # 6. return to Hallway
+      - get_current_detected_objects   # 7. confirm current surroundings
+    notes: >
+      Persistent map lookup → coordinate navigation → spin search → return.
+      get_current at steps 5 and 7 are at different positions. 7 steps.
+
+  - id: C6
+    level: challenging
+    prompt: "Do a quick patrol of the hallway, kitchen, and bedroom, and let me know what you find."
+    expected_tools:
+      - list_landmarks                 # 1
+      - navigate_to_landmark           # 2. Hallway
+      - get_current_detected_objects   # 3. observe hallway (open space, no spin needed)
+      - navigate_to_landmark           # 4. kitchen
+      - spin_robot                     # 5. scan kitchen
+      - get_current_detected_objects   # 6. observe kitchen
+      - navigate_to_landmark           # 7. bedroom
+      - get_detected_objects           # 8. cross-reference full map at end
+    notes: >
+      3-room patrol: hallway (observe only) → kitchen (spin+observe) →
+      bedroom (map check). All 5 tools; navigate reused twice. 8 steps.
+
+  - id: C7
+    level: challenging
+    prompt: "Can you find where the TV or any electronics are in the apartment and go check on them?"
+    expected_tools:
+      - list_landmarks                 # 1
+      - get_detected_objects           # 2. find electronics in persistent map
+      - navigate_to_landmark           # 3. navigate to object (x, y)
+      - spin_robot                     # 4. scan area around electronics
+      - get_current_detected_objects   # 5. confirm electronics visible
+      - navigate_to_landmark           # 6. return to Hallway
+      - get_current_detected_objects   # 7. observe current surroundings
+    notes: >
+      Electronics search → coordinate navigation → on-site scan → return.
+      get_current at steps 5 and 7 are at different positions. 7 steps.
+
+  - id: C8
+    level: challenging
+    prompt: "I want to know what's in the living room and whether the map agrees. Go check it out."
+    expected_tools:
+      - get_detected_objects           # 1. load persistent map baseline
+      - list_landmarks                 # 2
+      - navigate_to_landmark           # 3. living_room
+      - spin_robot                     # 4. scan living room
+      - get_current_detected_objects   # 5. live view of living room
+      - navigate_to_landmark           # 6. approach object of interest (x, y)
+      - get_current_detected_objects   # 7. close-up live view
+    notes: >
+      Single-room investigation → close-up approach. Model loads baseline,
+      scans the room, then closes in on anything noteworthy. get_current at
+      steps 5 and 7 are at different positions. 7 steps.
+
+  - id: C9
+    level: challenging
+    prompt: "Where's the refrigerator? Find it, go there, and tell me what else is nearby."
+    expected_tools:
+      - list_landmarks                 # 1
+      - get_detected_objects           # 2. locate refrigerator in persistent map
+      - navigate_to_landmark           # 3. navigate to refrigerator (x, y)
+      - get_current_detected_objects   # 4. immediate look on arrival
+      - spin_robot                     # 5. look around the area
+      - get_current_detected_objects   # 6. observe after turning
+      - navigate_to_landmark           # 7. go to the room landmark for full context
+    notes: >
+      Object lookup → coordinate navigation → look around → room context.
+      get_current at steps 4 and 6 are before/after the spin. 7 steps.
+
+  - id: C10
+    level: challenging
+    prompt: "Go check on the bedroom and bathroom and bring me back a full report of both."
+    expected_tools:
+      - list_landmarks                 # 1
+      - navigate_to_landmark           # 2. bedroom
+      - spin_robot                     # 3. scan bedroom
+      - get_current_detected_objects   # 4. observe bedroom
+      - navigate_to_landmark           # 5. bathroom
+      - spin_robot                     # 6. scan bathroom
+      - get_current_detected_objects   # 7. observe bathroom
+      - get_detected_objects           # 8. final map cross-reference
+    notes: >
+      Two-room report ending with a persistent map check. Steps 3-4 and
+      6-7 are in different rooms. 8 steps.
+
+  - id: C11
+    level: challenging
+    prompt: "Can you do a sweep of the hallway and tell me what you see there, including what was recorded before?"
+    expected_tools:
+      - get_detected_objects           # 1. check historical records first
+      - list_landmarks                 # 2
+      - navigate_to_landmark           # 3. Hallway
+      - spin_robot                     # 4. scan hallway
+      - get_current_detected_objects   # 5. observe hallway
+      - navigate_to_landmark           # 6. approach notable object (x, y)
+      - get_current_detected_objects   # 7. close-up view of object
+    notes: >
+      History-aware sweep: load map → visit room → close-up approach.
+      get_current at steps 5 and 7 are at different positions. 7 steps.
+
+  - id: C12
+    level: challenging
+    prompt: "I heard there might be a plant somewhere. Find it in the records and check if it's still where it was."
+    expected_tools:
+      - list_landmarks                 # 1
+      - get_detected_objects           # 2. find plant in persistent map
+      - navigate_to_landmark           # 3. navigate to plant's position (x, y)
+      - get_current_detected_objects   # 4. immediate check on arrival
+      - spin_robot                     # 5. turn to widen the search
+      - get_current_detected_objects   # 6. observe after turning
+    notes: >
+      Persistent map lookup → coordinate navigation → arrive-then-spin.
+      Observe immediately on arrival (step 4) before spinning (step 5),
+      then observe again from the new angle (step 6). 6 steps.
+
+  - id: C13
+    level: challenging
+    prompt: "Can you find somewhere I can sit and relax, and also somewhere I could sleep?"
+    expected_tools:
+      - list_landmarks                 # 1. discover rooms
+      - navigate_to_landmark           # 2. living_room (has sofa/couch for sitting)
+      - spin_robot                     # 3. scan living room
+      - get_current_detected_objects   # 4. confirm seating options
+      - navigate_to_landmark           # 5. bedroom (for sleeping)
+      - spin_robot                     # 6. scan bedroom
+      - get_current_detected_objects   # 7. confirm sleeping area
+      - get_detected_objects           # 8. cross-check full map for anything missed
+    notes: >
+      Semantic task — user describes a purpose, not room names. Model must
+      infer living_room → sitting/relaxing and bedroom → sleeping, then
+      verify by visiting both. 8 steps.
+
+  - id: C14
+    level: challenging
+    prompt: "I'm looking for somewhere to store food and then a spot to eat or hang out afterwards."
+    expected_tools:
+      - list_landmarks                 # 1. discover rooms
+      - get_detected_objects           # 2. find fridge/appliances in persistent map
+      - navigate_to_landmark           # 3. kitchen (food storage — fridge, microwave)
+      - spin_robot                     # 4. scan kitchen
+      - get_current_detected_objects   # 5. confirm kitchen appliances
+      - navigate_to_landmark           # 6. living_room (eating/hanging out)
+      - spin_robot                     # 7. scan living room
+      - get_current_detected_objects   # 8. confirm seating and dining area
+    notes: >
+      Semantic task — model must map "store food" → kitchen and "eat/hang out"
+      → living_room. Uses persistent map to confirm appliances before visiting.
+      Steps 4-5 and 7-8 are in different rooms. 8 steps.
+
+  - id: C15
+    level: challenging
+    prompt: "I'm not sure what's around you right now. Look around first, then decide where to go and check it out."
+    expected_tools:
+      - get_current_detected_objects   # 1. see what's immediately visible
+      - spin_robot                     # 2. turn to widen the view
+      - get_current_detected_objects   # 3. observe new direction
+      - list_landmarks                 # 4. check what rooms are available
+      - navigate_to_landmark           # 5. go to room that matches what was found
+      - spin_robot                     # 6. scan destination room
+      - get_current_detected_objects   # 7. full observation at destination
+      - get_detected_objects           # 8. compare to persistent map
+    notes: >
+      Starts from observation, not navigation. Each step feeds into the next:
+      what the robot sees (1-3) informs which room to visit (5). The room
+      choice at step 5 depends on steps 1-4 output. 8 steps.
+
+  - id: C16
+    level: challenging
+    prompt: "Find something interesting in the bedroom, then go see if there's anything similar in the living room."
+    expected_tools:
+      - list_landmarks                 # 1
+      - navigate_to_landmark           # 2. bedroom
+      - spin_robot                     # 3. scan bedroom
+      - get_current_detected_objects   # 4. find something interesting
+      - navigate_to_landmark           # 5. living_room
+      - spin_robot                     # 6. scan living room
+      - get_current_detected_objects   # 7. look for similar object
+      - get_detected_objects           # 8. confirm positions of both objects in map
+    notes: >
+      Cross-room object comparison. The object noticed in step 4 sets the
+      search target for step 7. The final map check (step 8) anchors both
+      objects by position. 8 steps.
+
+  - id: C17
+    level: challenging
+    prompt: "Take a look at the object map and then go investigate whatever catches your attention most."
+    expected_tools:
+      - get_detected_objects           # 1. browse full persistent map
+      - list_landmarks                 # 2. identify which room the target is in
+      - navigate_to_landmark           # 3. navigate to object coordinates (x, y)
+      - get_current_detected_objects   # 4. immediate check on arrival
+      - spin_robot                     # 5. look around the area
+      - get_current_detected_objects   # 6. observe after turning
+      - navigate_to_landmark           # 7. go to the containing room landmark
+      - get_current_detected_objects   # 8. observe the broader room context
+    notes: >
+      Map-driven open-ended investigation. The model picks its own target from
+      the persistent map (step 1) and the rest of the chain follows from that
+      choice. Steps 4, 6, 8 are each at different positions. 8 steps.
+
+  - id: C18
+    level: challenging
+    prompt: "Make your way from the kitchen to the living room and tell me what you notice along the way."
+    expected_tools:
+      - list_landmarks                 # 1
+      - navigate_to_landmark           # 2. kitchen (starting point)
+      - get_current_detected_objects   # 3. observe kitchen
+      - navigate_to_landmark           # 4. Hallway (midpoint on the way)
+      - spin_robot                     # 5. look around the hallway
+      - get_current_detected_objects   # 6. observe hallway
+      - navigate_to_landmark           # 7. living_room (destination)
+      - get_detected_objects           # 8. compare journey observations to full map
+    notes: >
+      Journey task with a meaningful midpoint stop. The model visits three
+      locations in a logical spatial order, making observations at each.
+      navigate reused twice; each step is at a distinct location. 8 steps.
+
+  - id: C19
+    level: challenging
+    prompt: "Without me telling you where to go, figure out which room has the most stuff in it."
+    expected_tools:
+      - get_detected_objects           # 1. scan persistent map for object counts per area
+      - list_landmarks                 # 2. map object positions to room names
+      - navigate_to_landmark           # 3. go to the candidate room (most objects in map)
+      - spin_robot                     # 4. verify by scanning in person
+      - get_current_detected_objects   # 5. observe and count live objects
+      - navigate_to_landmark           # 6. go to the second candidate room to compare
+      - spin_robot                     # 7. scan second room
+      - get_current_detected_objects   # 8. compare live counts, give final answer
+    notes: >
+      Reasoning-heavy task. Step 1-2 produce a hypothesis; steps 3-5 test it;
+      steps 6-8 verify against a runner-up. The model must reason quantitatively
+      about object density across rooms. 8 steps.
+
+  - id: C20
+    level: challenging
+    prompt: "Do the bedroom and the kitchen have any objects in common? Go check both and compare."
+    expected_tools:
+      - list_landmarks                 # 1
+      - navigate_to_landmark           # 2. bedroom
+      - spin_robot                     # 3. scan bedroom
+      - get_current_detected_objects   # 4. record bedroom objects
+      - navigate_to_landmark           # 5. kitchen
+      - spin_robot                     # 6. scan kitchen
+      - get_current_detected_objects   # 7. record kitchen objects
+      - get_detected_objects           # 8. cross-reference both with persistent map
+    notes: >
+      Cross-room intersection query. Model collects object lists from two rooms
+      then compares them. Step 8 anchors both lists with map positions. 8 steps.
+
+  - id: C21
+    level: challenging
+    prompt: "I want a tour from the hallway through to the living room. Stop anywhere interesting on the way."
+    expected_tools:
+      - list_landmarks                 # 1
+      - navigate_to_landmark           # 2. Hallway (start)
+      - get_current_detected_objects   # 3. observe hallway
+      - navigate_to_landmark           # 4. intermediate stop chosen by model
+      - spin_robot                     # 5. scan intermediate stop
+      - get_current_detected_objects   # 6. observe intermediate stop
+      - navigate_to_landmark           # 7. living_room (end)
+      - get_current_detected_objects   # 8. observe living room
+    notes: >
+      Open-ended journey. The intermediate stop at step 4 is the model's own
+      choice based on what it found in step 3. Three distinct locations visited,
+      get_current used at each. 8 steps.
+
+  - id: C22
+    level: challenging
+    prompt: "There might be a cat hiding somewhere in the apartment. Check the most likely spots."
+    expected_tools:
+      - get_detected_objects           # 1. check if cat is in the persistent map
+      - list_landmarks                 # 2
+      - navigate_to_landmark           # 3. first likely room (x,y from map or best guess)
+      - spin_robot                     # 4. search first room
+      - get_current_detected_objects   # 5. look for cat
+      - navigate_to_landmark           # 6. second likely room if not found
+      - spin_robot                     # 7. search second room
+      - get_current_detected_objects   # 8. final check
+    notes: >
+      Animal search with fallback. Step 1 may give a location hint; if not,
+      model must reason which rooms are likely (bedroom, living_room). Steps
+      3 and 6 depend on map data and live observations. 8 steps.
+
+  - id: C23
+    level: challenging
+    prompt: "Find the object closest to the hallway in the map and go take a look at it."
+    expected_tools:
+      - get_detected_objects           # 1. get all object positions
+      - list_landmarks                 # 2. get hallway coordinates for distance reasoning
+      - navigate_to_landmark           # 3. Hallway (reference point)
+      - get_current_detected_objects   # 4. see what's immediately visible from hallway
+      - navigate_to_landmark           # 5. navigate to closest object (x, y)
+      - spin_robot                     # 6. scan around the object
+      - get_current_detected_objects   # 7. confirm object and surroundings
+      - navigate_to_landmark           # 8. return to Hallway
+    notes: >
+      Spatial reasoning task. Model uses map coordinates (steps 1-2) to
+      estimate which object is nearest to hallway, then verifies in person.
+      Steps 4 and 7 are at different positions. 8 steps.
+
+  - id: C24
+    level: challenging
+    prompt: "I heard something was moved recently. Check the living room and the bedroom and tell me if anything looks out of place."
+    expected_tools:
+      - get_detected_objects           # 1. load the last-known persistent state
+      - list_landmarks                 # 2
+      - navigate_to_landmark           # 3. living_room
+      - spin_robot                     # 4. thorough scan
+      - get_current_detected_objects   # 5. live view — compare to map mentally
+      - navigate_to_landmark           # 6. bedroom
+      - spin_robot                     # 7. thorough scan
+      - get_current_detected_objects   # 8. live view — compare to map
+    notes: >
+      Change-detection task. Persistent map (step 1) is the baseline; model
+      must flag anything in steps 5 and 8 that wasn't in the map or has moved.
+      8 steps.
+
+  - id: C25
+    level: challenging
+    prompt: "Start at the bathroom and work your way back towards the living room. Tell me what you see at each stop."
+    expected_tools:
+      - list_landmarks                 # 1
+      - navigate_to_landmark           # 2. bathroom (start)
+      - get_current_detected_objects   # 3. observe bathroom
+      - navigate_to_landmark           # 4. bedroom (on the way)
+      - spin_robot                     # 5. scan bedroom
+      - get_current_detected_objects   # 6. observe bedroom
+      - navigate_to_landmark           # 7. living_room (end)
+      - get_detected_objects           # 8. compare journey with full map
+    notes: >
+      Reverse-direction journey across three rooms. Each stop builds a
+      running picture of the apartment. Final map check ties it together.
+      navigate reused twice; each step at a distinct location. 8 steps.
+
+  - id: C26
+    level: challenging
+    prompt: "Go find the room with the most plants or decorations and give me a full description."
+    expected_tools:
+      - get_detected_objects           # 1. scan map for plants/decorative items
+      - list_landmarks                 # 2. identify which room has the most
+      - navigate_to_landmark           # 3. go to that room
+      - spin_robot                     # 4. full scan
+      - get_current_detected_objects   # 5. detailed live observation
+      - navigate_to_landmark           # 6. approach closest plant/decoration (x, y)
+      - get_current_detected_objects   # 7. close-up view
+      - get_detected_objects           # 8. confirm positions in the map
+    notes: >
+      Category-filtered object search. Model uses step 1 to count plants
+      per room, picks the winner, then navigates twice — once to the room,
+      once to a specific object. Steps 5 and 7 at different positions. 8 steps.
+
+  - id: C27
+    level: challenging
+    prompt: "What can you see from where you are right now? Based on that, go explore the most interesting nearby place."
+    expected_tools:
+      - get_current_detected_objects   # 1. see current surroundings
+      - spin_robot                     # 2. expand field of view
+      - get_current_detected_objects   # 3. updated view after spinning
+      - list_landmarks                 # 4. check available rooms
+      - navigate_to_landmark           # 5. choose destination based on what was seen
+      - spin_robot                     # 6. scan destination
+      - get_current_detected_objects   # 7. observe destination
+      - get_detected_objects           # 8. check if new objects found vs map
+    notes: >
+      Starts from current position with no prior knowledge. Steps 1-3
+      build situational awareness; step 5 destination depends on that.
+      Steps 2-3 and 6-7 are in different locations (pre/post-navigation).
+      8 steps.
+
+  - id: C28
+    level: challenging
+    prompt: "I think the kitchen and the living room are next to each other. Can you verify by visiting both and checking what's between them?"
+    expected_tools:
+      - list_landmarks                 # 1
+      - navigate_to_landmark           # 2. kitchen
+      - spin_robot                     # 3. scan kitchen, note what direction living room might be
+      - get_current_detected_objects   # 4. observe kitchen
+      - navigate_to_landmark           # 5. Hallway (check what's between them)
+      - get_current_detected_objects   # 6. observe hallway/connecting space
+      - navigate_to_landmark           # 7. living_room
+      - get_current_detected_objects   # 8. observe living room, confirm proximity
+    notes: >
+      Spatial layout verification across three locations. Model checks
+      kitchen → connecting space → living room. No spin in hallway
+      (open corridor). get_current at each distinct location. 8 steps.
+
+  - id: C29
+    level: challenging
+    prompt: "Can you check the map, pick the object that seems most out of place, and go investigate it?"
+    expected_tools:
+      - get_detected_objects           # 1. browse full map, reason about anomalies
+      - list_landmarks                 # 2. identify which room the odd object is in
+      - navigate_to_landmark           # 3. navigate to object (x, y)
+      - get_current_detected_objects   # 4. immediate check on arrival
+      - spin_robot                     # 5. look around the area
+      - get_current_detected_objects   # 6. observe after turning
+      - navigate_to_landmark           # 7. go to the room landmark for broader context
+      - get_detected_objects           # 8. re-check map after investigation
+    notes: >
+      Model plays the role of an inspector. Step 1 requires subjective
+      reasoning about what is "out of place". Steps 4 and 6 are pre/post-spin.
+      Final map re-check detects any updates from the investigation. 8 steps.
+
+  - id: C30
+    level: challenging
+    prompt: "I'd like you to check every room you haven't been to yet today. Start with whichever one you think is most interesting."
+    expected_tools:
+      - get_detected_objects           # 1. check existing records to infer visited areas
+      - list_landmarks                 # 2. enumerate all rooms
+      - navigate_to_landmark           # 3. most interesting unvisited room
+      - spin_robot                     # 4. scan it
+      - get_current_detected_objects   # 5. observe
+      - navigate_to_landmark           # 6. second unvisited room
+      - spin_robot                     # 7. scan it
+      - get_current_detected_objects   # 8. observe and summarise both
+    notes: >
+      Novelty-driven exploration. Step 1 gives clues about what's already
+      known; model picks unseen rooms (steps 3, 6) based on map gaps.
+      Steps 4-5 and 7-8 in different rooms. 8 steps.
+
+  - id: C31
+    level: challenging
+    prompt: "Go check the bedroom, then on your way back stop by the hallway and tell me what changed."
+    expected_tools:
+      - get_detected_objects           # 1. load persistent map as baseline
+      - list_landmarks                 # 2
+      - navigate_to_landmark           # 3. bedroom
+      - spin_robot                     # 4. scan bedroom
+      - get_current_detected_objects   # 5. live view of bedroom
+      - navigate_to_landmark           # 6. Hallway (on the way back)
+      - spin_robot                     # 7. scan hallway
+      - get_current_detected_objects   # 8. compare hallway to baseline
+    notes: >
+      Return-trip task with a meaningful stop on the way back. Baseline
+      loaded at step 1 is used for comparison at steps 5 and 8. 8 steps.
+
+  - id: C32
+    level: challenging
+    prompt: "Find the fridge and check what's near it. Then find a place to sit down nearby."
+    expected_tools:
+      - get_detected_objects           # 1. find fridge position in map
+      - list_landmarks                 # 2
+      - navigate_to_landmark           # 3. navigate to fridge (x, y)
+      - get_current_detected_objects   # 4. see what's immediately around the fridge
+      - spin_robot                     # 5. look around the kitchen area
+      - get_current_detected_objects   # 6. wider view
+      - navigate_to_landmark           # 7. go to nearest room with seating (living_room)
+      - get_current_detected_objects   # 8. confirm seating available
+    notes: >
+      Object-to-room chaining. Fridge found by coordinates → kitchen area
+      explored → pivot to living room for seating. Steps 4, 6, 8 at three
+      different positions. 8 steps.
+
+  - id: C33
+    level: challenging
+    prompt: "Check what's currently visible, then go find where those objects are stored on the map."
+    expected_tools:
+      - get_current_detected_objects   # 1. see what's visible right now
+      - get_detected_objects           # 2. look up those objects in the persistent map
+      - list_landmarks                 # 3. figure out which room they belong to
+      - navigate_to_landmark           # 4. go to the room the objects are mapped to
+      - spin_robot                     # 5. scan the room
+      - get_current_detected_objects   # 6. confirm the objects are there
+      - navigate_to_landmark           # 7. return to original position (Hallway)
+      - get_current_detected_objects   # 8. confirm back at start
+    notes: >
+      Reverse lookup chain. Live observation (step 1) drives a map query
+      (step 2); model traces those objects back to their recorded room.
+      Steps 1, 6, 8 at three different positions. 8 steps.
+
+  - id: C34
+    level: challenging
+    prompt: "Is there anything in the apartment map that you haven't confirmed with your own eyes? Go find one and verify it."
+    expected_tools:
+      - get_detected_objects           # 1. scan full map for unconfirmed objects
+      - list_landmarks                 # 2. identify which room it's in
+      - navigate_to_landmark           # 3. go to the room
+      - spin_robot                     # 4. search for the unconfirmed object
+      - get_current_detected_objects   # 5. check if visible
+      - navigate_to_landmark           # 6. approach the exact object coordinates (x, y)
+      - get_current_detected_objects   # 7. close-up confirmation
+      - get_detected_objects           # 8. update understanding of the map
+    notes: >
+      Map-gap closing task. Model reasons about what it has and hasn't seen,
+      then verifies a specific entry. Navigate used twice: room-level then
+      object-level. Steps 5 and 7 at different positions. 8 steps.

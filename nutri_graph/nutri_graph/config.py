@@ -9,3 +9,6 @@ class Config:
     MAX_EPOCHS = 90
     TRAIN_SPLIT = 0.85
     VAL_SPLIT = 0.92
+
+    # Recipe graph integration (Phase 3 upgrade)
+    INCLUDE_RECIPES = True

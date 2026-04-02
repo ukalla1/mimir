@@ -17,6 +17,9 @@ from transformers import AutoModel, AutoTokenizer
 
 from nutri_rag.config import (
     FOOD_EMBEDDINGS_PATH,
+    NODE_EMBEDDINGS_PATH,
+    RECIPE_IDS_PATH,
+    RECIPE_TEXT_EMBEDDINGS_PATH,
     TEXT_EMBEDDING_DIM,
     TEXT_EMBEDDING_MODEL,
     TEXT_EMBEDDINGS_PATH,
@@ -186,3 +189,132 @@ class GATIndex:
         top_k = top_k[top_k != idx]  # remove self
         top_k = top_k[np.argsort(sims[top_k])[::-1]][:k]
         return [(int(i), float(sims[i])) for i in top_k]
+
+
+class RecipeVectorIndex:
+    """Pre-computed vector index for recipe retrieval (text + GAT embeddings).
+
+    Loads:
+    - Recipe text embeddings (Qwen3-Embedding over recipe names)
+    - Recipe GAT embeddings (from node_embeddings.npy at RECIPE_OFFSET)
+    """
+
+    def __init__(
+        self,
+        text_embeddings_path: str = RECIPE_TEXT_EMBEDDINGS_PATH,
+        recipe_ids_path: str = RECIPE_IDS_PATH,
+        node_embeddings_path: str = NODE_EMBEDDINGS_PATH,
+        db_path: str | None = None,
+    ):
+        if not os.path.exists(text_embeddings_path):
+            raise FileNotFoundError(
+                f"Recipe text embeddings not found at {text_embeddings_path}. "
+                "Run scripts/build_recipe_embeddings.py first."
+            )
+        self.text_embeddings = np.load(text_embeddings_path)  # (N_recipes, 1024)
+        self.recipe_ids = np.load(recipe_ids_path)             # (N_recipes,)
+
+        # Build recipe_id → index mapping
+        self._id_to_idx = {int(rid): i for i, rid in enumerate(self.recipe_ids)}
+
+        # Load GAT recipe embeddings from node_embeddings
+        self.gat_embeddings = None
+        if os.path.exists(node_embeddings_path):
+            self._load_gat_embeddings(node_embeddings_path, db_path)
+
+    def _load_gat_embeddings(self, node_embeddings_path: str, db_path: str | None):
+        """Extract recipe GAT embeddings from full node_embeddings using DB metadata."""
+        import torch
+
+        if db_path is None:
+            from nutri_rag.config import DB_PATH
+            db_path = DB_PATH
+
+        # Get offsets from DB
+        import duckdb
+        con = duckdb.connect(db_path, read_only=True)
+        num_foods = con.execute("SELECT COUNT(*) FROM nodes_food").fetchone()[0]
+        num_nutrients = con.execute("SELECT COUNT(*) FROM nodes_nutrient").fetchone()[0]
+        num_recipes = con.execute("SELECT COUNT(*) FROM nodes_recipe").fetchone()[0]
+        con.close()
+
+        recipe_offset = num_foods + num_nutrients
+
+        # Load node embeddings
+        if node_embeddings_path.endswith(".pt"):
+            all_emb = torch.load(node_embeddings_path, map_location="cpu").numpy()
+        else:
+            all_emb = np.load(node_embeddings_path)
+
+        if recipe_offset + num_recipes <= all_emb.shape[0]:
+            recipe_emb = all_emb[recipe_offset:recipe_offset + num_recipes]
+            # L2-normalize
+            norms = np.linalg.norm(recipe_emb, axis=1, keepdims=True)
+            norms = np.where(norms == 0, 1, norms)
+            self.gat_embeddings = recipe_emb / norms
+        else:
+            print(f"[RecipeVectorIndex] Warning: node_embeddings has {all_emb.shape[0]} nodes "
+                  f"but recipe_offset+num_recipes={recipe_offset + num_recipes}. "
+                  "GAT embeddings not available (retrain GAT with INCLUDE_RECIPES=True).")
+
+    def search_by_ids(
+        self,
+        query_vector: np.ndarray,
+        candidate_recipe_ids: list[int],
+        k: int = 20,
+        lam: float = 0.3,
+    ) -> list[tuple[int, float, float, float]]:
+        """Score and rank candidate recipes by combined text + GAT similarity.
+
+        Args:
+            query_vector: (dim,) L2-normalized query embedding.
+            candidate_recipe_ids: list of recipe_ids to score.
+            k: max results to return.
+            lam: GAT weight in combined score.
+
+        Returns:
+            List of (recipe_id, combined_score, text_score, gat_score),
+            sorted by combined_score descending.
+        """
+        # Map recipe_ids to indices, skip unknown
+        indices = []
+        valid_ids = []
+        for rid in candidate_recipe_ids:
+            idx = self._id_to_idx.get(int(rid))
+            if idx is not None:
+                indices.append(idx)
+                valid_ids.append(int(rid))
+
+        if not indices:
+            return []
+
+        idx_arr = np.array(indices)
+
+        # Text scores
+        text_scores = query_vector @ self.text_embeddings[idx_arr].T  # (N_candidates,)
+
+        # GAT scores
+        if self.gat_embeddings is not None and lam > 0:
+            # Use mean of all candidate GAT vectors as "query nutritional profile"
+            # Then score each candidate against the overall profile
+            gat_vecs = self.gat_embeddings[idx_arr]  # (N_candidates, gat_dim)
+            # Self-similarity: how central is each recipe in the candidate pool
+            mean_gat = gat_vecs.mean(axis=0)
+            mean_gat = mean_gat / (np.linalg.norm(mean_gat) + 1e-8)
+            gat_scores = gat_vecs @ mean_gat  # (N_candidates,)
+        else:
+            gat_scores = np.zeros(len(indices), dtype=np.float32)
+            lam = 0.0
+
+        # Combined score
+        combined = (1 - lam) * text_scores + lam * gat_scores
+
+        # Sort and return top-k
+        top_k = min(k, len(combined))
+        top_indices = np.argpartition(combined, -top_k)[-top_k:]
+        top_indices = top_indices[np.argsort(combined[top_indices])[::-1]]
+
+        return [
+            (valid_ids[i], float(combined[i]), float(text_scores[i]), float(gat_scores[i]))
+            for i in top_indices
+        ]

@@ -1,0 +1,367 @@
+# Mimir: Graph-Augmented RAG for Nutritional Intelligence
+
+Mimir combines **Graph Attention Networks (GAT)** with **Retrieval-Augmented Generation (RAG)** to estimate nutritional content from natural-language meal descriptions and provide personalized meal recommendations. The system learns food-nutrient-recipe relationships from USDA databases and FoodKG, and uses them alongside semantic text embeddings and LLM reasoning.
+
+## Architecture
+
+```
+                    ┌──────────────────────────────────────────────┐
+                    │                nutri_graph                    │
+                    │    Knowledge Base + GAT Embedding Training    │
+                    │                                              │
+                    │  USDA FDC + SR Legacy + FoodKG               │
+                    │    → Junk filtering (remove lab samples)     │
+                    │    → Deduplication (avg nutrients)            │
+                    │    → Recipe-ingredient-tag integration        │
+                    │    → DuckDB KB                               │
+                    │    → Heterogeneous GATv2 Training             │
+                    │      (food, nutrient, recipe, tag)            │
+                    │    → Food Embeddings (64d)                   │
+                    └──────────────┬───────────────────────────────┘
+                                   │
+        ┌──────────────────────────┼──────────────────────────┐
+        ▼                          ▼                           ▼
+┌────────────────────┐ ┌──────────────────────┐ ┌──────────────────────┐
+│  NutriBench        │ │  General Assistant   │ │  PFoodReq Benchmark  │
+│  (Nutrient Est.)   │ │  (Meal Recommend.)   │ │  (Recipe Recommend.) │
+│                    │ │                      │ │                      │
+│ Meal → Parse       │ │ Eaten Foods → Parse  │ │ Tag → All Recipes    │
+│ → Embedding Search │ │ → Gap Analysis (LLM) │ │ → Constraint Filter  │
+│ → GAT Re-rank      │ │ → DB Query + GAT     │ │ → GAT Re-rank        │
+│ → CoT Prompt → LLM│ │ → Preference Re-rank │ │ → Return matches     │
+│                    │ │ → Recommend (LLM)    │ │ (no LLM needed)      │
+└────────────────────┘ └──────────┬───────────┘ └──────────────────────┘
+                                  │
+                                  ▼
+                    ┌──────────────────────────┐
+                    │      nutri-atlas          │
+                    │  (Operator PC)            │
+                    │                           │
+                    │  User ─► Qwen Agent       │
+                    │  ─► Tool calls            │
+                    │    ├─ Meal recommendation │
+                    │    │   (via nutri_rag)    │
+                    │    └─ Navigation / Vision │
+                    │        (via ZMQ client)   │
+                    └────────────┬─────────────┘
+                                 │ ZMQ (TCP)
+                                 ▼
+                    ┌──────────────────────────┐
+                    │      robot_side           │
+                    │  (Robot Onboard PC)       │
+                    │                           │
+                    │  zmq_bridge_node :5555    │
+                    │    → ROS2 nav / cmd_vel   │
+                    │  zmq_object_server :5556  │
+                    │    → ROS2 camera detect   │
+                    └──────────────────────────┘
+```
+
+## Subsystems
+
+### [nutri_graph](nutri_graph/) — Knowledge Base + GAT Training
+
+Builds a cleaned DuckDB KB from three data sources:
+- **USDA FoodData Central** (Foundation Foods): ~74K raw entries, cleaned to ~4.6K after removing lab analysis junk
+- **USDA SR Legacy**: 7,793 curated entries with cooked/prepared forms
+- **FoodKG** (via PFoodReq): ~82K recipes with ingredients, nutrients, and cuisine tags — ingredients matched to USDA fdc_ids via Qwen3-Embedding
+
+Trains a heterogeneous GATv2 on a 4-node-type graph (food, nutrient, recipe, tag) to produce 64-dim embeddings encoding nutritional and relational similarity.
+
+### [nutri_rag](nutri_rag/) — RAG Pipeline
+
+Four retrieval versions for ablation:
+
+| Version | Method | Description |
+|---------|--------|-------------|
+| V0 | BM25 | Keyword matching with cross-language synonyms |
+| V1 | Dense | Qwen3-Embedding semantic search |
+| V2 | Dense + GAT | V1 + GAT re-ranking when text is ambiguous |
+| V3 | Multi-candidate | Top-5 candidates per food, filtered by similarity threshold (0.60) |
+
+Three modes:
+- **NutriBench Benchmark**: Evaluate carb/protein/fat/energy estimation accuracy using lm-evaluation-harness
+- **General Assistant**: Interactive meal recommendations with GAT neighbor expansion, gap analysis, and user preference learning
+- **PFoodReq Benchmark**: Personalized food recommendation using deterministic constraint filtering + GAT re-ranking
+
+### [nutri-atlas](nutri-atlas/) — Robot Integration (Operator Side)
+
+Connects the nutrition assistant to a Clearpath Go2 robot via Qwen Agent tool-calling. The robot assistant can navigate, detect objects, and provide meal recommendations — all through natural language.
+
+- **Navigation tools**: go to landmarks, spin, detect objects via camera
+- **Nutrition tool**: `get_meal_recommendation` wraps `nutri_rag`'s full pipeline (parse → gap analysis → GAT expansion → recommendation)
+- **LLM**: Qwen3.5-9B as the orchestration agent, deciding when to call navigation vs nutrition tools
+- **Communication**: ZMQ REQ client → sends commands to robot_side
+
+Example: *"I ate an apple and milk for breakfast, what should I eat for lunch?"* → the agent calls `get_meal_recommendation` → returns a personalized suggestion based on nutritional gap analysis.
+
+### [robot_side](robot_side/) — ZMQ Bridge (Robot Side)
+
+Runs on the robot's onboard computer. Two ZMQ REP servers receive commands from nutri-atlas and dispatch them to ROS2:
+
+- **`zmq_bridge_node.py`** (port 5555): handles navigation goals, spin, move, current object queries, and LiDAR scans. Each command blocks until the robot completes the action.
+- **`zmq_object_server.py`** (port 5556): serves a persistent map of all detected objects. A background ROS2 subscriber updates the map as the camera detects new objects.
+
+```
+nutri-atlas (operator PC)          robot_side (robot onboard)
+  zmq_client.py ──ZMQ REQ──→  zmq_bridge_node.py ──→ ROS2 /way_point, /cmd_vel
+  object_tool.py ─ZMQ REQ──→  zmq_object_server.py ──→ ROS2 camera detections
+```
+
+### [PFoodReq](PFoodReq/) — Benchmark Data
+
+Original dataset and BAMnet baseline from WSDM 2021. Contains test/dev/train splits with ~82K recipes from Recipe1M. Used by `nutri_graph` for recipe knowledge graph construction and by `nutri_rag` for benchmark evaluation.
+
+### [foodkg.github.io](foodkg.github.io/) — FoodKG Construction (External)
+
+External research project for building the FoodKG knowledge graph from USDA + Recipe1M data. Mimir uses its `recipe_kg.json` output as input for `nutri_graph/scripts/build_recipe_kb.py`. Not needed for normal operation — only required if rebuilding the recipe knowledge graph from scratch.
+
+## Results
+
+### NutriBench (Protein, 1000 samples)
+
+| Version | Acc@7.5g | MAE |
+|---------|----------|-----|
+| Baseline (no RAG) | 0.735 | 7.00 |
+| V3 (multi-candidate + GAT) | **0.763** | **6.04** |
+
+### PFoodReq (Full test set, 2244 queries)
+
+| Method | MAP | MAR | F1 |
+|--------|-----|-----|-----|
+| BAMnet (PFoodReq paper, WSDM 2021) | 62.7 | 61.8 | 63.7 |
+| **Ours (Config C: filter + GAT, no LLM)** | **78.7** | **82.9** | **77.5** |
+
+Config C pipeline: tag lookup → deterministic constraint filter (ingredient inclusion/exclusion + nutrient ranges) → GAT re-ranking. The deterministic filter leverages our clean augmented KB with accurate ingredient-nutrient mappings, outperforming BAMnet's learned embedding approach without requiring an LLM.
+
+## Implementation Process (All Submodules)
+
+This is the recommended end-to-end order when deploying on a new machine.
+
+### 0) Environment Setup
+
+```bash
+cd ~/work/atlas/mimir
+python -m venv .venv
+source .venv/bin/activate
+pip install -U pip
+
+# Install local packages
+pip install -e nutri_graph
+pip install -e nutri_rag
+
+# Install explicit deps used by graph/robot scripts
+pip install -r nutri_graph/requirements.txt
+pip install qwen-agent pyzmq pyyaml json5 requests transformers scikit-learn duckdb numpy torch
+```
+
+Notes:
+- Python `>=3.9` is required by `nutri_graph` and `nutri_rag`.
+- `nutri_graph/scripts/download_data.py` needs Kaggle credentials.
+
+### 1) Build `nutri_graph` Knowledge Base
+
+```bash
+cd ~/work/atlas/mimir/nutri_graph
+
+# Optional: fetch USDA data
+python scripts/download_data.py
+
+# Required: build clean USDA + SR Legacy KB
+python scripts/build_kb.py
+```
+
+Output:
+- `nutri_graph/data/nutri_kb.duckdb`
+
+### 2) Build `nutri_rag` Food Text Embeddings
+
+```bash
+cd ~/work/atlas/mimir/nutri_rag
+python scripts/build_embeddings.py
+```
+
+Why now:
+- `build_recipe_kb.py` in `nutri_graph` uses these food embeddings for recipe ingredient matching.
+
+### 3) Integrate FoodKG Recipes into `nutri_graph`
+
+```bash
+cd ~/work/atlas/mimir/nutri_graph
+python scripts/build_recipe_kb.py
+```
+
+Adds recipe/tag tables into the same DuckDB KB.
+
+### 4) Train GAT Embeddings in `nutri_graph`
+
+```bash
+cd ~/work/atlas/mimir/nutri_graph
+python scripts/train_GAT.py
+```
+
+Key outputs:
+- `nutri_graph/outputs/embeddings/food_embeddings.npy`
+- `nutri_graph/outputs/embeddings/node_embeddings.pt`
+
+### 5) (Optional) Build Recipe Text Embeddings for PFoodReq
+
+```bash
+cd ~/work/atlas/mimir/nutri_rag
+python scripts/build_recipe_embeddings.py
+```
+
+### 6) Start LLM Server (`nutri_rag`)
+
+Required for:
+- `nutri_rag/scripts/run_bench.py`
+- `nutri_rag/scripts/demo_assistant.py`
+- `nutri-atlas/robot_control/robot_assistant.py`
+
+```bash
+cd ~/work/atlas/mimir/nutri_rag
+bash scripts/start_server.sh
+# serves OpenAI-compatible endpoint on http://0.0.0.0:8080/v1
+```
+
+### 7) Run Each Subsystem
+
+```bash
+# A) NutriBench benchmark
+cd ~/work/atlas/mimir/nutri_rag
+python scripts/run_bench.py --mode v3 --nutrient protein --limit 200
+
+# B) PFoodReq benchmark (LLM server not required)
+cd ~/work/atlas/mimir/nutri_rag
+python scripts/run_pfoodreq_bench.py
+
+# C) Nutrition assistant
+cd ~/work/atlas/mimir/nutri_rag
+python scripts/demo_assistant.py
+
+# D) Robot assistant (navigation + nutrition)
+cd ~/work/atlas/mimir/nutri-atlas/robot_control
+python robot_assistant.py
+```
+
+## Two-Computer Deployment (Same Wi-Fi)
+
+The system is designed to run across two machines on the same network:
+
+```
+┌─────────────────────────────────┐       ┌─────────────────────────────┐
+│  Operator PC (GPU required)     │       │  Robot Onboard PC           │
+│                                 │       │                             │
+│  LLM server (:8080)             │  TCP  │  zmq_bridge_node (:5555)   │
+│  robot_assistant.py ────────────┼──────►│  zmq_object_server (:5556) │
+│  nutri_rag (embeddings + DB)    │       │  ROS2 runtime              │
+│  nutri_graph (KB + GAT)         │       │                             │
+└─────────────────────────────────┘       └─────────────────────────────┘
+```
+
+### Robot Onboard PC
+
+Copy `robot_side/` to the robot and start the two ZMQ servers:
+
+```bash
+# Terminal 1
+python zmq_bridge_node.py --port 5555
+
+# Terminal 2
+python zmq_object_server.py --port 5556
+```
+
+Only dependency: `pip install pyzmq`.
+
+### Operator PC
+
+Complete steps 0–6 from [Implementation Process](#implementation-process-all-submodules) first, then:
+
+```bash
+# Terminal 1 — LLM server
+cd ~/work/atlas/mimir/nutri_rag
+bash scripts/start_server.sh
+
+# Terminal 2 — robot assistant
+export ROBOT_IP=<robot_ip>            # e.g. 192.168.0.114
+export OBJECT_SERVER_IP=<robot_ip>    # same IP
+cd ~/work/atlas/mimir/nutri-atlas/robot_control
+python robot_assistant.py
+```
+
+### Network Checklist
+
+- Both machines on the same subnet (e.g. `192.168.0.x`).
+- Verify connectivity: `ping <robot_ip>` from operator PC.
+- Firewall allows inbound TCP `5555` and `5556` on robot.
+- LLM runs on `localhost:8080` on the operator PC (no cross-machine access needed).
+
+## Tech Stack
+
+| Layer | Technology |
+|-------|-----------|
+| Graph ML | PyTorch + PyTorch Geometric (GATv2Conv) |
+| Text Embeddings | Qwen3-Embedding-0.6B (1024d, last-token pooling) |
+| LLM Inference | Qwen3.5-9B via llama.cpp / llama-server |
+| Agent Framework | Qwen Agent (tool-calling orchestration) |
+| Robot Communication | ZMQ → ROS2 (Clearpath Go2) |
+| Database | DuckDB (columnar storage + full-text search) |
+| Data Sources | USDA FoodData Central + USDA SR Legacy + FoodKG |
+| Evaluation | lm-evaluation-harness |
+| Visualization | Plotly, UMAP, scikit-learn |
+
+## Project Structure
+
+```
+mimir/
+├── nutri_graph/                    # Knowledge base + GAT model
+│   ├── nutri_graph/
+│   │   ├── kb/builder.py          # KB builder (FDC + SR Legacy + cleaning + dedup)
+│   │   ├── kb/recipe_builder.py   # FoodKG recipe integration
+│   │   ├── graph/                 # PyG graph construction + negative sampling
+│   │   ├── models/gat_model.py    # GATv2 (dual decoders, 4 node types)
+│   │   ├── training/trainer.py    # Training loop
+│   │   └── visualization/         # UMAP, clustering, training curves
+│   ├── scripts/
+│   │   ├── build_kb.py            # Build DuckDB KB
+│   │   ├── build_recipe_kb.py     # Integrate FoodKG recipes
+│   │   ├── train_GAT.py           # Train GAT + save embeddings
+│   │   └── export_kb.py           # Export KB to JSON
+│   ├── data/                      # USDA CSVs + SR Legacy + DuckDB
+│   └── outputs/                   # Embeddings, checkpoints, plots
+│
+├── nutri_rag/                     # RAG pipeline
+│   ├── nutri_rag/
+│   │   ├── config.py              # Thresholds, model config
+│   │   ├── embedding.py           # TextEmbedder + FoodVectorIndex + GATIndex + RecipeVectorIndex
+│   │   ├── search.py              # Semantic + GAT hybrid search
+│   │   ├── bench/                 # NutriBench: retriever, prompt, task utils
+│   │   ├── assistant/             # Assistant: gap analysis, recommendations
+│   │   └── pfoodreq/             # PFoodReq: query parser, retriever, evaluator, prompt
+│   ├── tasks/                     # lm-eval task definitions (V0/V1/V2/V3)
+│   ├── scripts/                   # build_embeddings, run_bench, run_pfoodreq_bench, demos
+│   └── results/                   # Benchmark outputs
+│
+├── nutri-atlas/                   # Robot integration
+│   ├── robot_control/
+│   │   ├── robot_assistant.py     # Main chat loop + Qwen Agent
+│   │   ├── tools/
+│   │   │   ├── navigate_tool.py   # Navigate to landmarks / coordinates
+│   │   │   ├── object_tool.py     # Camera object detection queries
+│   │   │   ├── motion_tool.py     # Spin and move primitives
+│   │   │   ├── nutrition_tool.py  # Meal recommendation (wraps nutri_rag)
+│   │   │   └── zmq_client.py      # ZMQ transport to robot
+│   │   └── config/landmarks.yaml  # Named room positions
+│   └── benchmark_tasks.yaml       # 30+ graded robot benchmark tasks
+│
+├── robot_side/                    # ZMQ servers (runs on robot onboard PC)
+│   ├── zmq_bridge_node.py         # REP server :5555 → ROS2 nav/motion/lidar
+│   └── zmq_object_server.py       # REP server :5556 → persistent object map
+│
+├── PFoodReq/                      # PFoodReq benchmark data (WSDM 2021)
+│   └── data/kbqa_data/            # test/dev/train splits + dish_info_map
+│
+├── foodkg.github.io/              # FoodKG construction (external, optional)
+│
+└── README.md
+```

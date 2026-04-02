@@ -1,0 +1,863 @@
+Total onion entries: 508
+
+    324299  ALEXIA, Onion rings, frozen (AL 1) - NFY1206PP
+    324301  ALEXIA, Onion rings, frozen (AL 1) - NFY1206PQ
+    324159  ALEXIA, Onion rings, frozen (CA2) - NFY1206RO
+    324161  ALEXIA, Onion rings, frozen (CA2) - NFY1206RP
+    324215  ALEXIA, Onion rings, frozen (CO1) - NFY12054D
+    324218  ALEXIA, Onion rings, frozen (CO1) - NFY12054E
+    324217  ALEXIA, Onion rings, frozen (CT1) - NFY1206PL
+    324216  ALEXIA, Onion rings, frozen (CT1) - NFY1206PM
+    324180  ALEXIA, Onion rings, frozen (FL) - NFY1206RC
+    324179  ALEXIA, Onion rings, frozen (FL) - NFY1206RD
+    324255  ALEXIA, Onion rings, frozen (IN1) - NFY12054H
+    324253  ALEXIA, Onion rings, frozen (IN1) - NFY12054I
+    324178  ALEXIA, Onion rings, frozen (MO1) - NFY1206RZ
+    324181  ALEXIA, Onion rings, frozen (MO1) - NFY1206S0
+    324160  ALEXIA, Onion rings, frozen (NC1) - NFY12054T
+    324162  ALEXIA, Onion rings, frozen (NC1) - NFY12054U
+    324256  ALEXIA, Onion rings, frozen (NY1) - NFY1206TE
+    324254  ALEXIA, Onion rings, frozen (NY1) - NFY1206TF
+    324298  ALEXIA, Onion rings, frozen (OK1) - NFY1206SH
+    324300  ALEXIA, Onion rings, frozen (OK1) - NFY1206SI
+    324316  Choline, Onion rings, frozen, ALEXIA (AL,OK) - NFY12066V
+    324310  Fatty Acids, Onion rings, frozen, ALEXIA (AL,OK) - NFY12066O
+    324226  Fatty Acids, Onion rings, frozen, ALEXIA (CO,CT) - NFY12067J
+    324189  Fatty Acids, Onion rings, frozen, ALEXIA (FL,MO) - NFY12068C
+    324208  Fatty Acids, Onion rings, frozen, ORE-IDA (CA1,CT) - NFY120695
+    324292  Fatty Acids, Onion rings, frozen, ORE-IDA (FL,MO) - NFY1207BA
+    324245  Fatty Acids, Onion rings, frozen, ORE-IDA (NY,OK) - NFY1206AR
+    324277  Fatty Acids, Onion rings, frozen, Store brand/other (CO,IN) - NFY12069Y
+    324303  Folate, Onion rings, frozen, ALEXIA (AL,OK) - NFY12066H
+    324219  Folate, Onion rings, frozen, ALEXIA (CO,CT) - NFY12067C
+    324183  Folate, Onion rings, frozen, ALEXIA (FL,MO) - NFY120686
+    324201  Folate, Onion rings, frozen, ORE-IDA (CA1,CT) - NFY12068Y
+    324287  Folate, Onion rings, frozen, ORE-IDA (FL,MO) - NFY1207B5
+    324239  Folate, Onion rings, frozen, ORE-IDA (NY,OK) - NFY1206AL
+    324270  Folate, Onion rings, frozen, Store brand/other (CO,IN) - NFY12069R
+   2727585  Green onion, (scallion), bulb and greens, root removed, raw
+   2727895  Green onion, (scallion), bulb and greens, root removed, raw
+   2727897  Green onion, (scallion), bulb and greens, root removed, raw
+   2727899  Green onion, (scallion), bulb and greens, root removed, raw
+   2727901  Green onion, (scallion), bulb and greens, root removed, raw
+   2727903  Green onion, (scallion), bulb and greens, root removed, raw
+   2727905  Green onion, (scallion), bulb and greens, root removed, raw
+   2727907  Green onion, (scallion), bulb and greens, root removed, raw
+   2727909  Green onion, (scallion), bulb and greens, root removed, raw
+   2727894  Green onion, (scallion), bulb and greens, root removed, raw
+   2727896  Green onion, (scallion), bulb and greens, root removed, raw
+   2727898  Green onion, (scallion), bulb and greens, root removed, raw
+   2727900  Green onion, (scallion), bulb and greens, root removed, raw
+   2727902  Green onion, (scallion), bulb and greens, root removed, raw
+   2727904  Green onion, (scallion), bulb and greens, root removed, raw
+   2727906  Green onion, (scallion), bulb and greens, root removed, raw
+   2727908  Green onion, (scallion), bulb and greens, root removed, raw
+   2729108  Green onion, (scallion), bulb and greens, root removed, raw
+   2729109  Green onion, (scallion), bulb and greens, root removed, raw
+   2729110  Green onion, (scallion), bulb and greens, root removed, raw
+   2729111  Green onion, (scallion), bulb and greens, root removed, raw
+   2729112  Green onion, (scallion), bulb and greens, root removed, raw
+   2729113  Green onion, (scallion), bulb and greens, root removed, raw
+   2729114  Green onion, (scallion), bulb and greens, root removed, raw
+   2729115  Green onion, (scallion), bulb and greens, root removed, raw
+   2729348  Green onion, (scallion), bulb and greens, root removed, raw
+   2729349  Green onion, (scallion), bulb and greens, root removed, raw
+   2729350  Green onion, (scallion), bulb and greens, root removed, raw
+   2729351  Green onion, (scallion), bulb and greens, root removed, raw
+   2729352  Green onion, (scallion), bulb and greens, root removed, raw
+   2729353  Green onion, (scallion), bulb and greens, root removed, raw
+   2729354  Green onion, (scallion), bulb and greens, root removed, raw
+   2729355  Green onion, (scallion), bulb and greens, root removed, raw
+   2729356  Green onion, (scallion), bulb and greens, root removed, raw
+   2729357  Green onion, (scallion), bulb and greens, root removed, raw
+   2729358  Green onion, (scallion), bulb and greens, root removed, raw
+   2729359  Green onion, (scallion), bulb and greens, root removed, raw
+   2729360  Green onion, (scallion), bulb and greens, root removed, raw
+   2729361  Green onion, (scallion), bulb and greens, root removed, raw
+   2729362  Green onion, (scallion), bulb and greens, root removed, raw
+   2729363  Green onion, (scallion), bulb and greens, root removed, raw
+   2729364  Green onion, (scallion), bulb and greens, root removed, raw
+   2729365  Green onion, (scallion), bulb and greens, root removed, raw
+   2729366  Green onion, (scallion), bulb and greens, root removed, raw
+   2729367  Green onion, (scallion), bulb and greens, root removed, raw
+   2729368  Green onion, (scallion), bulb and greens, root removed, raw
+   2729369  Green onion, (scallion), bulb and greens, root removed, raw
+   2729370  Green onion, (scallion), bulb and greens, root removed, raw
+   2729371  Green onion, (scallion), bulb and greens, root removed, raw
+   2729372  Green onion, (scallion), bulb and greens, root removed, raw
+   2729373  Green onion, (scallion), bulb and greens, root removed, raw
+   2729374  Green onion, (scallion), bulb and greens, root removed, raw
+   2729375  Green onion, (scallion), bulb and greens, root removed, raw
+   2729376  Green onion, (scallion), bulb and greens, root removed, raw
+   2729377  Green onion, (scallion), bulb and greens, root removed, raw
+   2729378  Green onion, (scallion), bulb and greens, root removed, raw
+   2729379  Green onion, (scallion), bulb and greens, root removed, raw
+   2729380  Green onion, (scallion), bulb and greens, root removed, raw
+   2729381  Green onion, (scallion), bulb and greens, root removed, raw
+   2729382  Green onion, (scallion), bulb and greens, root removed, raw
+   2729383  Green onion, (scallion), bulb and greens, root removed, raw
+   2729384  Green onion, (scallion), bulb and greens, root removed, raw
+   2729385  Green onion, (scallion), bulb and greens, root removed, raw
+   2729386  Green onion, (scallion), bulb and greens, root removed, raw
+   2729387  Green onion, (scallion), bulb and greens, root removed, raw
+   2729388  Green onion, (scallion), bulb and greens, root removed, raw
+   2729389  Green onion, (scallion), bulb and greens, root removed, raw
+   2729390  Green onion, (scallion), bulb and greens, root removed, raw
+   2729391  Green onion, (scallion), bulb and greens, root removed, raw
+   2729392  Green onion, (scallion), bulb and greens, root removed, raw
+   2729393  Green onion, (scallion), bulb and greens, root removed, raw
+   2729394  Green onion, (scallion), bulb and greens, root removed, raw
+   2729395  Green onion, (scallion), bulb and greens, root removed, raw
+   2729396  Green onion, (scallion), bulb and greens, root removed, raw
+   2729397  Green onion, (scallion), bulb and greens, root removed, raw
+   2729398  Green onion, (scallion), bulb and greens, root removed, raw
+   2729399  Green onion, (scallion), bulb and greens, root removed, raw
+   2729400  Green onion, (scallion), bulb and greens, root removed, raw
+   2729401  Green onion, (scallion), bulb and greens, root removed, raw
+   2729402  Green onion, (scallion), bulb and greens, root removed, raw
+   2729403  Green onion, (scallion), bulb and greens, root removed, raw
+   2729404  Green onion, (scallion), bulb and greens, root removed, raw
+   2729405  Green onion, (scallion), bulb and greens, root removed, raw
+   2729406  Green onion, (scallion), bulb and greens, root removed, raw
+   2729408  Green onion, (scallion), bulb and greens, root removed, raw
+   2729410  Green onion, (scallion), bulb and greens, root removed, raw
+   2729411  Green onion, (scallion), bulb and greens, root removed, raw
+   2729412  Green onion, (scallion), bulb and greens, root removed, raw
+   2729413  Green onion, (scallion), bulb and greens, root removed, raw
+   2729414  Green onion, (scallion), bulb and greens, root removed, raw
+   2729415  Green onion, (scallion), bulb and greens, root removed, raw
+   2729416  Green onion, (scallion), bulb and greens, root removed, raw
+   2729417  Green onion, (scallion), bulb and greens, root removed, raw
+   2729418  Green onion, (scallion), bulb and greens, root removed, raw
+   2729419  Green onion, (scallion), bulb and greens, root removed, raw
+   2729588  Green onion, (scallion), bulb and greens, root removed, raw
+   2729592  Green onion, (scallion), bulb and greens, root removed, raw
+   2729593  Green onion, (scallion), bulb and greens, root removed, raw
+   2729597  Green onion, (scallion), bulb and greens, root removed, raw
+   2729598  Green onion, (scallion), bulb and greens, root removed, raw
+   2729602  Green onion, (scallion), bulb and greens, root removed, raw
+   2729603  Green onion, (scallion), bulb and greens, root removed, raw
+   2729644  Green onion, (scallion), bulb and greens, root removed, raw
+   2729647  Green onion, (scallion), bulb and greens, root removed, raw
+   2729648  Green onion, (scallion), bulb and greens, root removed, raw
+   2729649  Green onion, (scallion), bulb and greens, root removed, raw
+   2729652  Green onion, (scallion), bulb and greens, root removed, raw
+   2729653  Green onion, (scallion), bulb and greens, root removed, raw
+   2729659  Green onion, (scallion), bulb and greens, root removed, raw
+   2729662  Green onion, (scallion), bulb and greens, root removed, raw
+   2729663  Green onion, (scallion), bulb and greens, root removed, raw
+   2729664  Green onion, (scallion), bulb and greens, root removed, raw
+   2729667  Green onion, (scallion), bulb and greens, root removed, raw
+   2729668  Green onion, (scallion), bulb and greens, root removed, raw
+   2729725  Green onion, (scallion), bulb and greens, root removed, raw
+   2729726  Green onion, (scallion), bulb and greens, root removed, raw
+   2729730  Green onion, (scallion), bulb and greens, root removed, raw
+   2729731  Green onion, (scallion), bulb and greens, root removed, raw
+   2729734  Green onion, (scallion), bulb and greens, root removed, raw
+   2729735  Green onion, (scallion), bulb and greens, root removed, raw
+   2729736  Green onion, (scallion), bulb and greens, root removed, raw
+   2729737  Green onion, (scallion), bulb and greens, root removed, raw
+   2729738  Green onion, (scallion), bulb and greens, root removed, raw
+   2729739  Green onion, (scallion), bulb and greens, root removed, raw
+   2729740  Green onion, (scallion), bulb and greens, root removed, raw
+   2729741  Green onion, (scallion), bulb and greens, root removed, raw
+   2729744  Green onion, (scallion), bulb and greens, root removed, raw
+   2729745  Green onion, (scallion), bulb and greens, root removed, raw
+   2729746  Green onion, (scallion), bulb and greens, root removed, raw
+   2729749  Green onion, (scallion), bulb and greens, root removed, raw
+   2729750  Green onion, (scallion), bulb and greens, root removed, raw
+   2729751  Green onion, (scallion), bulb and greens, root removed, raw
+   2729755  Green onion, (scallion), bulb and greens, root removed, raw
+   2729756  Green onion, (scallion), bulb and greens, root removed, raw
+   2729759  Green onion, (scallion), bulb and greens, root removed, raw
+   2729760  Green onion, (scallion), bulb and greens, root removed, raw
+   2729761  Green onion, (scallion), bulb and greens, root removed, raw
+   2730760  Green onion, (scallion), bulb and greens, root removed, raw
+   2730761  Green onion, (scallion), bulb and greens, root removed, raw
+   2730762  Green onion, (scallion), bulb and greens, root removed, raw
+   2730763  Green onion, (scallion), bulb and greens, root removed, raw
+   2730781  Green onion, (scallion), bulb and greens, root removed, raw
+   2730782  Green onion, (scallion), bulb and greens, root removed, raw
+   2730783  Green onion, (scallion), bulb and greens, root removed, raw
+   2730784  Green onion, (scallion), bulb and greens, root removed, raw
+   2730933  Green onion, (scallion), bulb and greens, root removed, raw
+   2730934  Green onion, (scallion), bulb and greens, root removed, raw
+   2730935  Green onion, (scallion), bulb and greens, root removed, raw
+   2730936  Green onion, (scallion), bulb and greens, root removed, raw
+   2730937  Green onion, (scallion), bulb and greens, root removed, raw
+   2730938  Green onion, (scallion), bulb and greens, root removed, raw
+   2730939  Green onion, (scallion), bulb and greens, root removed, raw
+   2730940  Green onion, (scallion), bulb and greens, root removed, raw
+   2731034  Green onion, (scallion), bulb and greens, root removed, raw
+   2731035  Green onion, (scallion), bulb and greens, root removed, raw
+   2731036  Green onion, (scallion), bulb and greens, root removed, raw
+   2731037  Green onion, (scallion), bulb and greens, root removed, raw
+   2731038  Green onion, (scallion), bulb and greens, root removed, raw
+   2731039  Green onion, (scallion), bulb and greens, root removed, raw
+   2731040  Green onion, (scallion), bulb and greens, root removed, raw
+   2731041  Green onion, (scallion), bulb and greens, root removed, raw
+    324263  KROGER SWEET, Onion rings, frozen (CO1) - NFY12054M
+    324262  KROGER SWEET, Onion rings, frozen (CO1) - NFY12054N
+    324261  KROGER, Onion rings, frozen (IN1) - NFY12054Q
+    324260  KROGER, Onion rings, frozen (IN1) - NFY12054R
+    324167  KROGER, Onion rings, frozen (MI1) - NFY1206RS
+    324304  Minerals, Onion rings, frozen, ALEXIA (AL,OK) - NFY12066I
+    324163  Minerals, Onion rings, frozen, ALEXIA (CA2,NC) - NFY120674
+    324220  Minerals, Onion rings, frozen, ALEXIA (CO,CT) - NFY12067D
+    324184  Minerals, Onion rings, frozen, ALEXIA (FL,MO) - NFY120687
+    324257  Minerals, Onion rings, frozen, ALEXIA (IN,NY) - NFY120669
+    324202  Minerals, Onion rings, frozen, ORE-IDA (CA1,CT) - NFY12068Z
+    324175  Minerals, Onion rings, frozen, ORE-IDA (CA2,NC) - NFY12069J
+    324283  Minerals, Onion rings, frozen, ORE-IDA (FL,MO) - NFY1206AC
+    324240  Minerals, Onion rings, frozen, ORE-IDA (NY,OK) - NFY1206AM
+    324168  Minerals, Onion rings, frozen, Store brand/other (AL,MI) - NFY12068Q
+    324271  Minerals, Onion rings, frozen, Store brand/other (CO,IN) - NFY12069S
+    324305  Niacin, Onion rings, frozen, ALEXIA (AL,OK) - NFY12066J
+    324221  Niacin, Onion rings, frozen, ALEXIA (CO,CT) - NFY12067E
+    324185  Niacin, Onion rings, frozen, ALEXIA (FL,MO) - NFY120688
+    324203  Niacin, Onion rings, frozen, ORE-IDA (CA1,CT) - NFY120690
+    324288  Niacin, Onion rings, frozen, ORE-IDA (FL,MO) - NFY1207B6
+    324241  Niacin, Onion rings, frozen, ORE-IDA (NY,OK) - NFY1206AN
+    324272  Niacin, Onion rings, frozen, Store brand/other (CO,IN) - NFY12069T
+    790509  ONIONS, RED
+    790510  ONIONS, RED
+    790511  ONIONS, RED
+    790512  ONIONS, RED
+    790513  ONIONS, RED
+    790514  ONIONS, RED
+    790515  ONIONS, RED
+    790516  ONIONS, RED
+    790517  ONIONS, RED
+    790518  ONIONS, RED
+    790519  ONIONS, RED
+    790520  ONIONS, RED
+    790521  ONIONS, RED
+    790522  ONIONS, RED
+    790523  ONIONS, RED
+    790524  ONIONS, RED
+    790525  ONIONS, RED
+    790526  ONIONS, RED
+    790527  ONIONS, RED
+    790528  ONIONS, RED
+    790529  ONIONS, RED
+    790530  ONIONS, RED
+    790531  ONIONS, RED
+    790532  ONIONS, RED
+    790533  ONIONS, RED
+    790534  ONIONS, RED
+    790535  ONIONS, RED
+    790536  ONIONS, RED
+    790537  ONIONS, RED
+    790538  ONIONS, RED
+    790539  ONIONS, RED
+    790540  ONIONS, RED
+    790541  ONIONS, RED
+    790542  ONIONS, RED
+    790543  ONIONS, RED
+    790544  ONIONS, RED
+    790545  ONIONS, RED
+    790546  ONIONS, RED
+    790547  ONIONS, RED
+    790548  ONIONS, RED
+    790549  ONIONS, RED
+    790550  ONIONS, RED
+    790551  ONIONS, RED
+    790552  ONIONS, RED
+    790553  ONIONS, RED
+    790554  ONIONS, RED
+    790555  ONIONS, RED
+    790556  ONIONS, RED
+    790557  ONIONS, RED
+    790558  ONIONS, RED
+    790559  ONIONS, RED
+    790560  ONIONS, RED
+    790561  ONIONS, RED
+    790562  ONIONS, RED
+    790563  ONIONS, RED
+    790564  ONIONS, RED
+    790565  ONIONS, RED
+    790566  ONIONS, RED
+    790567  ONIONS, RED
+    790568  ONIONS, RED
+    790569  ONIONS, RED
+    790570  ONIONS, RED
+    790571  ONIONS, RED
+    790572  ONIONS, RED
+    790573  ONIONS, RED
+    790574  ONIONS, RED
+    790575  ONIONS, RED
+    790576  ONIONS, RED
+   1104914  ONIONS, WHITE
+   1104961  ONIONS, WHITE
+   1104916  ONIONS, WHITE
+   1104917  ONIONS, WHITE
+   1104918  ONIONS, WHITE
+   1104919  ONIONS, WHITE
+   1104920  ONIONS, WHITE
+   1104921  ONIONS, WHITE
+   1104922  ONIONS, WHITE
+   1104923  ONIONS, WHITE
+   1104924  ONIONS, WHITE
+   1104925  ONIONS, WHITE
+   1104926  ONIONS, WHITE
+   1104915  ONIONS, WHITE
+   1104928  ONIONS, WHITE
+   1104929  ONIONS, WHITE
+   1104930  ONIONS, WHITE
+   1104931  ONIONS, WHITE
+   1104932  ONIONS, WHITE
+   1104933  ONIONS, WHITE
+   1104934  ONIONS, WHITE
+   1104935  ONIONS, WHITE
+   1104936  ONIONS, WHITE
+   1104937  ONIONS, WHITE
+   1104938  ONIONS, WHITE
+   1104939  ONIONS, WHITE
+   1104940  ONIONS, WHITE
+   1104941  ONIONS, WHITE
+   1104942  ONIONS, WHITE
+   1104943  ONIONS, WHITE
+   1104944  ONIONS, WHITE
+   1104945  ONIONS, WHITE
+   1104946  ONIONS, WHITE
+   1104947  ONIONS, WHITE
+   1104948  ONIONS, WHITE
+   1104949  ONIONS, WHITE
+   1104950  ONIONS, WHITE
+   1104951  ONIONS, WHITE
+   1104952  ONIONS, WHITE
+   1104953  ONIONS, WHITE
+   1104954  ONIONS, WHITE
+   1104955  ONIONS, WHITE
+   1104956  ONIONS, WHITE
+   1104957  ONIONS, WHITE
+   1104958  ONIONS, WHITE
+   1104959  ONIONS, WHITE
+   1104960  ONIONS, WHITE
+   1104927  ONIONS, WHITE
+    790578  ONIONS, YELLOW
+    790579  ONIONS, YELLOW
+    790580  ONIONS, YELLOW
+    790581  ONIONS, YELLOW
+    790582  ONIONS, YELLOW
+    790583  ONIONS, YELLOW
+    790584  ONIONS, YELLOW
+    790585  ONIONS, YELLOW
+    790586  ONIONS, YELLOW
+    790587  ONIONS, YELLOW
+    790588  ONIONS, YELLOW
+    790589  ONIONS, YELLOW
+    790590  ONIONS, YELLOW
+    790591  ONIONS, YELLOW
+    790592  ONIONS, YELLOW
+    790593  ONIONS, YELLOW
+    790594  ONIONS, YELLOW
+    790595  ONIONS, YELLOW
+    790596  ONIONS, YELLOW
+    790597  ONIONS, YELLOW
+    790598  ONIONS, YELLOW
+    790599  ONIONS, YELLOW
+    790600  ONIONS, YELLOW
+    790601  ONIONS, YELLOW
+    790602  ONIONS, YELLOW
+    790603  ONIONS, YELLOW
+    790604  ONIONS, YELLOW
+    790605  ONIONS, YELLOW
+    790606  ONIONS, YELLOW
+    790607  ONIONS, YELLOW
+    790608  ONIONS, YELLOW
+    790609  ONIONS, YELLOW
+    790610  ONIONS, YELLOW
+    790611  ONIONS, YELLOW
+    790612  ONIONS, YELLOW
+    790613  ONIONS, YELLOW
+    790614  ONIONS, YELLOW
+    790615  ONIONS, YELLOW
+    790616  ONIONS, YELLOW
+    790617  ONIONS, YELLOW
+    790618  ONIONS, YELLOW
+    790619  ONIONS, YELLOW
+    790620  ONIONS, YELLOW
+    790621  ONIONS, YELLOW
+    790622  ONIONS, YELLOW
+    790623  ONIONS, YELLOW
+    790624  ONIONS, YELLOW
+    790625  ONIONS, YELLOW
+    790626  ONIONS, YELLOW
+    790627  ONIONS, YELLOW
+    790628  ONIONS, YELLOW
+    790629  ONIONS, YELLOW
+    790630  ONIONS, YELLOW
+    790631  ONIONS, YELLOW
+    790632  ONIONS, YELLOW
+    790633  ONIONS, YELLOW
+    790634  ONIONS, YELLOW
+    790635  ONIONS, YELLOW
+    790636  ONIONS, YELLOW
+    790637  ONIONS, YELLOW
+    790638  ONIONS, YELLOW
+    790639  ONIONS, YELLOW
+    790640  ONIONS, YELLOW
+    790641  ONIONS, YELLOW
+    790642  ONIONS, YELLOW
+    790643  ONIONS, YELLOW
+    790644  ONIONS, YELLOW
+    790645  ONIONS, YELLOW
+    324199  ORE-IDA, Onion rings, frozen (CA1) - NFY1206R5
+    324196  ORE-IDA, Onion rings, frozen (CA1) - NFY1206R7
+    324173  ORE-IDA, Onion rings, frozen (CA2) - NFY1206R9
+    324171  ORE-IDA, Onion rings, frozen (CA2) - NFY1206RA
+    324197  ORE-IDA, Onion rings, frozen (CT1) - NFY1206RI
+    324198  ORE-IDA, Onion rings, frozen (CT1) - NFY1206RJ
+    324281  ORE-IDA, Onion rings, frozen (FL) - NFY1206RL
+    324279  ORE-IDA, Onion rings, frozen (FL) - NFY1206RM
+    324282  ORE-IDA, Onion rings, frozen (MO1) - NFY1206RW
+    324280  ORE-IDA, Onion rings, frozen (MO1) - NFY1206RX
+    324174  ORE-IDA, Onion rings, frozen (NC1) - NFY12054X
+    324172  ORE-IDA, Onion rings, frozen (NC1) - NFY12054Y
+    324234  ORE-IDA, Onion rings, frozen (NY1) - NFY1206TI
+    324236  ORE-IDA, Onion rings, frozen (NY1) - NFY1206TJ
+    324235  ORE-IDA, Onion rings, frozen (OK1) - NFY1206SL
+    324237  ORE-IDA, Onion rings, frozen (OK1) - NFY1206SM
+    324317  Onion rings, breaded, par fried, frozen, prepared, heated in oven
+    324297  Onion rings, frozen, oven-heated, ALEXIA (AL,OK) - CY12059
+    324158  Onion rings, frozen, oven-heated, ALEXIA (CA2,NC) - CY1205A
+    324214  Onion rings, frozen, oven-heated, ALEXIA (CO,CT) - CY1205B
+    324177  Onion rings, frozen, oven-heated, ALEXIA (FL,MO) - CY1205D
+    324252  Onion rings, frozen, oven-heated, ALEXIA (IN,NY) - CY12058
+    324195  Onion rings, frozen, oven-heated, ORE-IDA (CA1,CT) - CY1205F
+    324170  Onion rings, frozen, oven-heated, ORE-IDA (CA2,NC) - CY1205G
+    324278  Onion rings, frozen, oven-heated, ORE-IDA (FL,MO) - CY1205I
+    324233  Onion rings, frozen, oven-heated, ORE-IDA (NY,OK) - CY1205J
+    324165  Onion rings, frozen, oven-heated, Store brand/other (AL,MI) - CY1205E
+    324259  Onion rings, frozen, oven-heated, Store brand/other, KROGER (CO,IN) - CY1205H
+    790577  Onions, red, raw
+   1104962  Onions, white, raw
+    790646  Onions, yellow, raw
+    324222  Pantothenic Acid, Onion rings, frozen, ALEXIA (CO,CT) - NFY12067F
+    324284  Pantothenic Acid, Onion rings, frozen, ORE-IDA (FL,MO) - NFY1206AD
+    324251  Pantothenic Acid, Onion rings, frozen, ORE-IDA (NY,OK) - NFY1206AY
+    324273  Pantothenic Acid, Onion rings, frozen, Store brand/other (CO,IN) - NFY12069U
+    324311  Proximates, Onion rings, frozen, ALEXIA (AL,OK) - NFY12066P
+    324164  Proximates, Onion rings, frozen, ALEXIA (CA2,NC) - NFY120675
+    324227  Proximates, Onion rings, frozen, ALEXIA (CO,CT) - NFY12067K
+    324190  Proximates, Onion rings, frozen, ALEXIA (FL,MO) - NFY12068D
+    324258  Proximates, Onion rings, frozen, ALEXIA (IN,NY) - NFY12066A
+    324209  Proximates, Onion rings, frozen, ORE-IDA (CA1,CT) - NFY120696
+    324176  Proximates, Onion rings, frozen, ORE-IDA (CA2,NC) - NFY12069K
+    324285  Proximates, Onion rings, frozen, ORE-IDA (FL,MO) - NFY1206AE
+    324246  Proximates, Onion rings, frozen, ORE-IDA (NY,OK) - NFY1206AS
+    324169  Proximates, Onion rings, frozen, Store brand/other (AL,MI) - NFY12068R
+    324264  Proximates, Onion rings, frozen, Store brand/other (CO,IN) - NFY12069Z
+    324306  Riboflavin, Onion rings, frozen, ALEXIA (AL,OK) - NFY12066K
+    324223  Riboflavin, Onion rings, frozen, ALEXIA (CO,CT) - NFY12067G
+    324186  Riboflavin, Onion rings, frozen, ALEXIA (FL,MO) - NFY120689
+    324204  Riboflavin, Onion rings, frozen, ORE-IDA (CA1,CT) - NFY120691
+    324289  Riboflavin, Onion rings, frozen, ORE-IDA (FL,MO) - NFY1207B7
+    324242  Riboflavin, Onion rings, frozen, ORE-IDA (NY,OK) - NFY1206AO
+    324274  Riboflavin, Onion rings, frozen, Store brand/other (CO,IN) - NFY12069V
+    324166  SOUTHERN MEATS, Onion rings, frozen (AL 1) - NFY1206RG
+    324307  Selenium, Onion rings, frozen, ALEXIA (AL,OK) - NFY12066L
+    324224  Selenium, Onion rings, frozen, ALEXIA (CO,CT) - NFY12067H
+    324187  Selenium, Onion rings, frozen, ALEXIA (FL,MO) - NFY12068A
+    324205  Selenium, Onion rings, frozen, ORE-IDA (CA1,CT) - NFY120692
+    324290  Selenium, Onion rings, frozen, ORE-IDA (FL,MO) - NFY1207B8
+    324243  Selenium, Onion rings, frozen, ORE-IDA (NY,OK) - NFY1206AP
+    324275  Selenium, Onion rings, frozen, Store brand/other (CO,IN) - NFY12069W
+    324312  Starch, Onion rings, frozen, ALEXIA (AL,OK) - NFY12066Q
+    324228  Starch, Onion rings, frozen, ALEXIA (CO,CT) - NFY12067L
+    324191  Starch, Onion rings, frozen, ALEXIA (FL,MO) - NFY12068E
+    324210  Starch, Onion rings, frozen, ORE-IDA (CA1,CT) - NFY120697
+    324293  Starch, Onion rings, frozen, ORE-IDA (FL,MO) - NFY1207BB
+    324247  Starch, Onion rings, frozen, ORE-IDA (NY,OK) - NFY1206AT
+    324265  Starch, Onion rings, frozen, Store brand/other (CO,IN) - NFY1206A0
+    324308  Sugars, Onion rings, frozen, ALEXIA (AL,OK) - NFY12066M
+    324225  Sugars, Onion rings, frozen, ALEXIA (CO,CT) - NFY12067I
+    324188  Sugars, Onion rings, frozen, ALEXIA (FL,MO) - NFY12068B
+    324206  Sugars, Onion rings, frozen, ORE-IDA (CA1,CT) - NFY120693
+    324291  Sugars, Onion rings, frozen, ORE-IDA (FL,MO) - NFY1207B9
+    324244  Sugars, Onion rings, frozen, ORE-IDA (NY,OK) - NFY1206AQ
+    324276  Sugars, Onion rings, frozen, Store brand/other (CO,IN) - NFY12069X
+    324313  TDF, Onion rings, frozen, ALEXIA (AL,OK) - NFY12066R
+    324229  TDF, Onion rings, frozen, ALEXIA (CO,CT) - NFY12067M
+    324192  TDF, Onion rings, frozen, ALEXIA (FL,MO) - NFY12068F
+    324211  TDF, Onion rings, frozen, ORE-IDA (CA1,CT) - NFY120698
+    324294  TDF, Onion rings, frozen, ORE-IDA (FL,MO) - NFY1207BC
+    324248  TDF, Onion rings, frozen, ORE-IDA (NY,OK) - NFY1206AU
+    324266  TDF, Onion rings, frozen, Store brand/other (CO,IN) - NFY1206A1
+    324314  Thiamin, Onion rings, frozen, ALEXIA (AL,OK) - NFY12066S
+    324230  Thiamin, Onion rings, frozen, ALEXIA (CO,CT) - NFY12067N
+    324193  Thiamin, Onion rings, frozen, ALEXIA (FL,MO) - NFY12068G
+    324212  Thiamin, Onion rings, frozen, ORE-IDA (CA1,CT) - NFY120699
+    324295  Thiamin, Onion rings, frozen, ORE-IDA (FL,MO) - NFY1207BD
+    324249  Thiamin, Onion rings, frozen, ORE-IDA (NY,OK) - NFY1206AV
+    324267  Thiamin, Onion rings, frozen, Store brand/other (CO,IN) - NFY1206A2
+    324302  Tocopherols, Onion rings, frozen, ALEXIA (AL,OK) - NFY12066G
+    324232  Tocopherols, Onion rings, frozen, ALEXIA (CO,CT) - NFY12067B
+    324182  Tocopherols, Onion rings, frozen, ALEXIA (FL,MO) - NFY120685
+    324200  Tocopherols, Onion rings, frozen, ORE-IDA (CA1,CT) - NFY12068X
+    324286  Tocopherols, Onion rings, frozen, ORE-IDA (FL,MO) - NFY1207B4
+    324238  Tocopherols, Onion rings, frozen, ORE-IDA (NY,OK) - NFY1206AK
+    324269  Tocopherols, Onion rings, frozen, Store brand/other (CO,IN) - NFY12069Q
+    324315  Vitamin B6, Onion rings, frozen, ALEXIA (AL,OK) - NFY12066T
+    324231  Vitamin B6, Onion rings, frozen, ALEXIA (CO,CT) - NFY12067O
+    324194  Vitamin B6, Onion rings, frozen, ALEXIA (FL,MO) - NFY12068H
+    324213  Vitamin B6, Onion rings, frozen, ORE-IDA (CA1,CT) - NFY12069A
+    324296  Vitamin B6, Onion rings, frozen, ORE-IDA (FL,MO) - NFY1207BE
+    324250  Vitamin B6, Onion rings, frozen, ORE-IDA (NY,OK) - NFY1206AW
+    324268  Vitamin B6, Onion rings, frozen, Store brand/other (CO,IN) - NFY1206A3
+    324309  Vitamin C, Onion rings, frozen, ALEXIA (AL,OK) - NFY12066N
+    324207  Vitamin C, Onion rings, frozen, ORE-IDA (CA1,CT) - NFY120694
+
+
+
+
+
+
+    Total food entries: 74175
+Unique descriptions: 11738
+Duplicates: 62437 (84.2%)
+
+=== Top 20 most duplicated descriptions ===
+   2272x  SOY MILK, UNSWEETENED, PLAIN, SHELF STABLE
+   1858x  ALMOND MILK, UNSWEETENED, PLAIN, SHELF STABLE
+    628x  OIL, SAFFLOWER
+    628x  OIL, SUNFLOWER
+    626x  OIL, OLIVE, EXTRA LIGHT
+    624x  OIL, PEANUT
+    565x  oat milk, refrigerated, unsweetened
+    544x  MUSHROOMS, OYSTER
+    544x  MUSHROOMS, SHIITAKE
+    539x  soy milk, refrigerated, sweetened
+    530x  SPINACH, REGULAR (MATURE)
+    530x  SPINACH, BABY
+    520x  TOMATOES, ROMA
+    520x  MUSHROOMS, LIONS MANE
+    510x  almond milk, refrigerated, unsweetened
+    475x  peanut butter, creamy
+    464x  sesame seed butter (tahini), creamy
+    455x  ground flaxseed meal
+    452x  raspberries, fresh, raw
+    450x  strawberries, fresh, raw
+
+=== Distribution of duplication counts ===
+     1 copies: 11092 descriptions
+     2 copies: 120 descriptions
+     3 copies: 34 descriptions
+     4 copies: 4 descriptions
+     5 copies: 11 descriptions
+     6 copies: 6 descriptions
+     7 copies: 6 descriptions
+     8 copies: 7 descriptions
+     9 copies: 4 descriptions
+    10 copies: 13 descriptions
+    11 copies: 3 descriptions
+    12 copies: 23 descriptions
+    13 copies: 5 descriptions
+    14 copies: 8 descriptions
+    15 copies: 10 descriptions
+    16 copies: 7 descriptions
+    17 copies: 3 descriptions
+    18 copies: 7 descriptions
+    19 copies: 3 descriptions
+    20 copies: 5 descriptions
+    21 copies: 4 descriptions
+    22 copies: 8 descriptions
+    23 copies: 4 descriptions
+    24 copies: 12 descriptions
+    25 copies: 1 descriptions
+    26 copies: 4 descriptions
+    27 copies: 4 descriptions
+    28 copies: 3 descriptions
+    29 copies: 3 descriptions
+    30 copies: 5 descriptions
+    32 copies: 2 descriptions
+    33 copies: 1 descriptions
+    34 copies: 2 descriptions
+    35 copies: 2 descriptions
+    36 copies: 7 descriptions
+    38 copies: 3 descriptions
+    39 copies: 1 descriptions
+    40 copies: 4 descriptions
+    41 copies: 1 descriptions
+    42 copies: 5 descriptions
+    43 copies: 3 descriptions
+    44 copies: 2 descriptions
+    45 copies: 1 descriptions
+    46 copies: 2 descriptions
+    47 copies: 3 descriptions
+    48 copies: 3 descriptions
+    50 copies: 1 descriptions
+    51 copies: 1 descriptions
+    52 copies: 1 descriptions
+    53 copies: 2 descriptions
+    54 copies: 7 descriptions
+    55 copies: 1 descriptions
+    57 copies: 1 descriptions
+    58 copies: 1 descriptions
+    59 copies: 1 descriptions
+    61 copies: 1 descriptions
+    62 copies: 1 descriptions
+    63 copies: 2 descriptions
+    66 copies: 4 descriptions
+    68 copies: 2 descriptions
+    69 copies: 2 descriptions
+    72 copies: 2 descriptions
+    73 copies: 1 descriptions
+    76 copies: 1 descriptions
+    77 copies: 2 descriptions
+    80 copies: 2 descriptions
+    85 copies: 1 descriptions
+    86 copies: 3 descriptions
+    87 copies: 1 descriptions
+    90 copies: 1 descriptions
+    97 copies: 4 descriptions
+   108 copies: 1 descriptions
+   113 copies: 1 descriptions
+   114 copies: 2 descriptions
+   115 copies: 3 descriptions
+   116 copies: 3 descriptions
+   119 copies: 1 descriptions
+   120 copies: 1 descriptions
+   125 copies: 1 descriptions
+   127 copies: 1 descriptions
+   129 copies: 7 descriptions
+   132 copies: 1 descriptions
+   136 copies: 12 descriptions
+   140 copies: 1 descriptions
+   144 copies: 12 descriptions
+   148 copies: 1 descriptions
+   152 copies: 6 descriptions
+   153 copies: 3 descriptions
+   154 copies: 3 descriptions
+   155 copies: 1 descriptions
+   156 copies: 6 descriptions
+   160 copies: 10 descriptions
+   161 copies: 2 descriptions
+   162 copies: 1 descriptions
+   166 copies: 1 descriptions
+   168 copies: 6 descriptions
+   169 copies: 16 descriptions
+   170 copies: 1 descriptions
+   171 copies: 1 descriptions
+   174 copies: 2 descriptions
+   175 copies: 1 descriptions
+   176 copies: 3 descriptions
+   177 copies: 4 descriptions
+   178 copies: 1 descriptions
+   180 copies: 1 descriptions
+   183 copies: 1 descriptions
+   184 copies: 7 descriptions
+   185 copies: 1 descriptions
+   186 copies: 1 descriptions
+   189 copies: 1 descriptions
+   192 copies: 8 descriptions
+   193 copies: 1 descriptions
+   201 copies: 2 descriptions
+   205 copies: 1 descriptions
+   212 copies: 1 descriptions
+   216 copies: 11 descriptions
+   217 copies: 2 descriptions
+   224 copies: 11 descriptions
+   225 copies: 1 descriptions
+   232 copies: 1 descriptions
+   240 copies: 8 descriptions
+   242 copies: 1 descriptions
+   244 copies: 1 descriptions
+   251 copies: 1 descriptions
+   254 copies: 1 descriptions
+   255 copies: 1 descriptions
+   257 copies: 2 descriptions
+   264 copies: 4 descriptions
+   273 copies: 1 descriptions
+   276 copies: 3 descriptions
+   279 copies: 1 descriptions
+   293 copies: 1 descriptions
+   296 copies: 4 descriptions
+   311 copies: 1 descriptions
+   328 copies: 1 descriptions
+   336 copies: 2 descriptions
+   365 copies: 1 descriptions
+   368 copies: 3 descriptions
+   369 copies: 4 descriptions
+   375 copies: 1 descriptions
+   408 copies: 1 descriptions
+   448 copies: 2 descriptions
+   450 copies: 1 descriptions
+   452 copies: 1 descriptions
+   455 copies: 1 descriptions
+   464 copies: 1 descriptions
+   475 copies: 1 descriptions
+   510 copies: 1 descriptions
+   520 copies: 2 descriptions
+   530 copies: 2 descriptions
+   539 copies: 1 descriptions
+   544 copies: 2 descriptions
+   565 copies: 1 descriptions
+   624 copies: 1 descriptions
+   626 copies: 1 descriptions
+   628 copies: 2 descriptions
+  1858 copies: 1 descriptions
+  2272 copies: 1 descriptions
+
+
+
+
+
+
+
+  === ONIONS, YELLOW — Protein across 6 lab samples ===
+
+  fdc_id=790587 [sub_sample_food]: Protein = 0.880g/100g
+  fdc_id=790598 [sub_sample_food]: Protein = 0.930g/100g
+  fdc_id=790610 [sub_sample_food]: Protein = 0.700g/100g
+  fdc_id=790621 [sub_sample_food]: Protein = 0.830g/100g
+  fdc_id=790632 [sub_sample_food]: Protein = 0.930g/100g
+  fdc_id=790644 [sub_sample_food]: Protein = 0.720g/100g
+
+  Avg=0.832g, Min=0.7g, Max=0.93g
+
+
+=== MUSHROOMS, SHIITAKE — Multiple nutrients across 16 samples ===
+
+  Fat            : N=16, Avg=  0.20, Min=  0.10, Max=  0.28
+
+  Individual Protein values:
+
+
+=== ONIONS, RED — Multiple nutrients across 6 samples ===
+
+  Protein        : ['1.12', '1.15', '0.96', '0.81', '0.72', '0.89']
+                   Avg=0.94, Range=0.72–1.15
+  Fat            : ['0.10', '0.20', '0.00', '0.10', '0.00', '0.20']
+                   Avg=0.10, Range=0.00–0.20
+
+
+
+======================================================================
+APPROACH 1: Original PFoodReq (NO LLM, NO prompt)
+======================================================================
+
+No prompt at all. BAMnet encodes the query and each candidate recipe 
+into a shared embedding space, scores via dot product, and thresholds.
+
+  query_embedding = BAMnet_encode("Recommend low carb moose recipes...")
+  for each candidate recipe in tag "moose":
+      score = dot(query_embedding, recipe_embedding)
+  return recipes where score > threshold
+
+No ingredients, no nutrients, no LLM reasoning.
+
+======================================================================
+APPROACH 2: Our system WITHOUT RAG (LLM + recipe names only)
+======================================================================
+=== Candidate Recipes ===
+1. "Venison Marinade"
+2. "Moose Stew"
+3. "Roasted Moose"
+4. "Hearty Stew With Moose and Guinness"
+5. "Moose Roast with Cranberry Gravy"
+6. "Stuffed Moose Round Steak Supreme"
+7. "Canadian Moose Soup"
+8. "Moose Steak with Mushroom Sauce"
+9. "Jerky"
+10. "Simple Moose Round (Crockpot)"
+===
+
+Query: Recommend low carbohydrates moose recipes which do not have ingredient ground deer meat?
+Must include: dry red wine
+Must NOT include: tomato paste, sugar
+Nutrient: low carbohydrates (0-45)
+Guideline: sugar 10-35 g per meal
+
+Which recipes satisfy ALL requirements? Return a JSON list of recipe names.
+
+======================================================================
+APPROACH 3: Our system WITH RAG (LLM + retrieved KB context)
+======================================================================
+=== Candidate Recipes ===
+1. "Venison Marinade"
+   Ingredients: venison, dry red wine, garlic, rosemary, olive oil, black pepper
+   Nutrients (per serving): cal: 95.2, protein: 2.1, carbs: 8.3, sat_fat: 0.1
+2. "Moose Stew"
+   Ingredients: moose meat, potatoes, carrots, onion, beef broth, celery, garlic
+   Nutrients (per serving): cal: 180.5, protein: 22.4, carbs: 12.1, sat_fat: 3.2
+3. "Roasted Moose"
+   Ingredients: moose roast, onion, garlic, butter, salt, black pepper
+   Nutrients (per serving): cal: 210.3, protein: 28.1, carbs: 5.2, sat_fat: 4.1
+4. "Hearty Stew With Moose and Guinness"
+   Ingredients: moose meat, guinness, potatoes, carrots, tomato paste, onion, flour, sugar
+   Nutrients (per serving): cal: 250.8, protein: 18.5, carbs: 22.3, sat_fat: 5.6
+5. "Moose Roast with Cranberry Gravy"
+   Ingredients: moose roast, cranberries, sugar, dry red wine, onion, garlic
+   Nutrients (per serving): cal: 195.0, protein: 24.3, carbs: 15.8, sat_fat: 3.8
+===
+
+Query: Recommend low carbohydrates moose recipes which do not have ingredient ground deer meat?
+Must include: dry red wine
+Must NOT include: tomato paste, sugar
+Nutrient: low carbohydrates (0-45)
+Guideline: sugar 10-35 g per meal
+
+Which recipes from the list above satisfy ALL requirements? Return a JSON list of recipe names.
+
+======================================================================
+KEY DIFFERENCE
+======================================================================
+
+Without RAG: LLM only sees recipe NAMES. It must guess whether 
+  "Hearty Stew With Moose and Guinness" contains tomato paste 
+  or how many carbs it has — purely from its training knowledge.
+
+With RAG: LLM sees ingredients + nutrients retrieved from our KB.
+  It can directly check: "Hearty Stew" has tomato paste → exclude.
+  "Venison Marinade" has carbs 8.3g < 45g → keep.
+
+Original PFoodReq: No LLM at all. Pure embedding matching.
+  Cannot reason about constraints — just learned patterns.
+
+
+
+
+
+{
+  "entities": [["moose", "tag"]],
+  "topicKey": ["http://idea.rpi.edu/heals/kb/tag/moose"],
+  "qOriginText": "Recommend low carbohydrates moose recipes which do not have ingredient ground deer meat?",
+  "qText": "Recommend low carbohydrates moose recipes which do not have ingredient ground deer meat, and have dry red wine, and do not have tomato paste, sugar, and contain sugar with desired range 10.0 g to 35.0 g?",
+  "origin_answers": [35 recipes - ALL moose-tagged recipes minus those with "ground deer meat"],
+  "answers": ["Venison Marinade", "Moose Stew"],  // final answers after ALL constraints
+  "explicit_nutrition": [{"nutrition": "carbohydrates", "level": "low", "range": [0, 45]}],
+  "persona": {
+    "ingredient_likes": ["dry red wine"],
+    "ingredient_dislikes": ["tomato paste", "sugar"]
+  },
+  "guideline": {"sugar": {"unit": "g", "meal": {"lower": "10", "upper": "35"}}}
+}
+
+
+Original PFoodReq Evaluation Pipeline
+Step 1: Candidate Generation (via KG traversal)
+For each query, PFoodReq uses the topicKey (tag URI) to traverse FoodKG:
+
+
+tag node ("moose") → [tagged_dishes edge] → ALL recipes under that tag
+For Example 0, this gives all 46 moose recipes. These are the origin_answers in the data — recipes that match the original query's basic constraint (tag + excluded ingredient from qOriginText).
+
+Step 2: Constraint Filtering (what BAMnet learns to do)
+The full query (qText) adds persona + nutrition + guidelines on top. BAMnet learns to score each candidate against ALL constraints:
+
+Constraint source	Example 0
+qOriginText	moose tag, no "ground deer meat"
+explicit_nutrition	low carbohydrates (0-45g)
+persona.ingredient_likes	must have "dry red wine"
+persona.ingredient_dislikes	must NOT have "tomato paste", "sugar"
+guideline	sugar 10-35g per meal
+BAMnet encodes these constraints into a query vector, scores all 46 candidates, and outputs the ones that pass. The answers field (["Venison Marinade", "Moose Stew"]) are the ground truth — the only 2 out of 46 that satisfy every constraint.
+
+Step 3: Evaluation Metrics
+They compare predicted recipe names against answers:
+
+MAP (Mean Average Precision) — considers rank order of correct predictions
+MAR (Mean Average Recall) — considers how many correct answers were found
+F1 — harmonic mean of precision and recall per query, macro-averaged

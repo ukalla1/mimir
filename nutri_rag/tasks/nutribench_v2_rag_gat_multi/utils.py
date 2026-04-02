@@ -1,8 +1,7 @@
-"""NutriBench v2 RAG task utilities — V3 (per-item threshold-gated prompt).
+"""NutriBench v2 RAG + GAT multi-candidate task utilities (V3 pipeline).
 
-Uses V1 dense retrieval but with per-item prompt format:
-- Items with cosine similarity >= threshold get USDA references
-- Items below threshold are marked "no reliable match — use your own knowledge"
+Retrieves top-5 USDA candidates per food item and lets the LLM pick the best.
+Items with no matches are omitted to save tokens.
 
 Nutrient target is controlled by NUTRI_TARGET env var (default: carb).
 """
@@ -21,17 +20,19 @@ from nutri_rag.bench.task_utils import process_results, clean_output, agg_mae, i
 
 _retriever = None
 
+TOP_K_CANDIDATES = 5
+
 
 def _get_retriever():
     global _retriever
     if _retriever is None:
-        _retriever = BenchRetriever()
+        _retriever = BenchRetriever(use_gat=True)
     return _retriever
 
 
 def doc_to_text_rag(doc):
-    """Build RAG-augmented prompt with per-item threshold gating."""
+    """Build RAG+GAT multi-candidate prompt for a NutriBench sample."""
     retriever = _get_retriever()
     meal = doc["meal_description"]
-    contexts = retriever.retrieve(meal)
-    return build_rag_doc_to_text(meal, contexts, per_item=True)
+    contexts = retriever.retrieve(meal, top_k=TOP_K_CANDIDATES)
+    return build_rag_doc_to_text(meal, contexts, multi_candidate=True)

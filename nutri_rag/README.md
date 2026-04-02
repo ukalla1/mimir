@@ -1,388 +1,232 @@
-# nutri_rag — Embedding-Based RAG for Nutrition Estimation & Personalized Recommendations
+# nutri_rag — RAG Pipeline for Nutrition Estimation & Meal Recommendations
 
-RAG (Retrieval-Augmented Generation) system that combines the [nutri_graph](../nutri_graph/) knowledge base (DuckDB + GAT embeddings) with Qwen3-Embedding and Qwen3.5-9B to improve nutrition estimation and provide personalized meal recommendations.
+RAG system that combines the [nutri_graph](../nutri_graph/) knowledge base (DuckDB + GAT embeddings) with semantic text embeddings (Qwen3-Embedding) and an LLM (Qwen3.5-9B) for three tasks:
+1. **NutriBench Benchmark** — evaluate nutritional content estimation accuracy
+2. **PFoodReq Benchmark** — personalized recipe recommendation (no LLM needed)
+3. **General Assistant** — personalized meal recommendations
 
-## Three Retrieval Versions
+## Retrieval Versions
 
-The benchmark supports three retrieval modes, selectable via `--mode`:
+| Version | Mode | Retrieval Method |
+|---------|------|-----------------|
+| **V0** | `--mode v0` | BM25 keyword matching (DuckDB FTS) |
+| **V1** | `--mode v1` | Dense text embedding (Qwen3-Embedding-0.6B) |
+| **V2** | `--mode v2` | Text embedding + GAT re-ranking |
+| **V3** | `--mode v3` | Multi-candidate text + GAT (top-5 per food item) |
 
-| Version | Retrieval Method | Search Module |
-|---------|-----------------|---------------|
-| **V0** | BM25 keyword matching (DuckDB FTS) | `search_bm25.py` |
-| **V1** | Text embedding (Qwen3-Embedding-0.6B) | `search.py` |
-| **V2** | Text embedding + GAT re-ranking | `search.py` (with `use_gat=True`) |
+**V0** uses keyword matching with cross-language synonyms. **V1** replaces it with semantic vector search — handles vocabulary mismatches like "groundnut" → "peanut" without hardcoded synonyms. **V2** adds GAT re-ranking when text similarity is ambiguous (score gap < 0.03). **V3** shows multiple candidates per food item, filtered by a cosine similarity threshold (0.60), letting the LLM choose the best match.
 
-V0 is the original manual approach using keyword matching with cross-language synonyms. V1 replaces it with semantic vector search — the embedding model handles vocabulary mismatches like "groundnut" vs "peanut" without hardcoded synonyms. V2 adds GAT nutritional-similarity re-ranking on top of V1, but only when the text embedding is ambiguous (confident matches are left unchanged).
+## Key Design Decisions
 
-## Two Independent Modes
+These were discovered through iterative benchmarking on NutriBench:
 
-### Mode 1: NutriBench Benchmark
+- **Similarity threshold (0.60)**: Candidates below this cosine similarity are filtered out. Without this, bad matches (e.g., "tap water" → "beans") actively hurt performance.
+- **Concise prompt**: The USDA reference block uses minimal instructions ("Ignore wrong matches and use your own knowledge"). Verbose prompts caused the LLM to overthink and waste tokens debating reference quality.
+- **Partial coverage note**: "The reference may only cover some of the items — estimate the rest yourself" prevents the LLM from returning -1 when references don't cover all food items.
+- **8192 max tokens**: Long chain-of-thought responses were hitting the 4096 limit before producing output. Bumped to 8192 to prevent truncation.
 
-Improves carbohydrate estimation accuracy by supplying exact USDA per-100g nutrient values to the LLM, instead of letting it guess from memory.
+## NutriBench Results (Protein, 1000 samples)
 
-**V1 Pipeline (Text Embedding):**
+| Version | Acc@7.5g | MAE |
+|---------|----------|-----|
+| Baseline (no RAG) | 0.735 | 7.00 |
+| V3 (multi-candidate) | **0.763** | **6.04** |
 
-```
-meal_description (e.g. "126g of maize flour and 27g of raw sugar")
-    |
-    v
-[Regex Food Term Extraction] -- 3 patterns: "Xg of <food>", "<food> weighing Xg", "<food> (Xg)"
-    |                            strip cooking/prep words (raw, boiled, etc.)
-    v
-[Qwen3-Embedding Vector Search] -- encode food term -> cosine similarity vs 74K USDA vectors
-    |                                no synonyms needed (semantic matching)
-    |                                re-rank: prefer entries with macronutrient data
-    v
-[Nutrient Lookup] -- per-100g values from DuckDB knowledge base
-    |                 filter: only include references with carbohydrate data
-    v
-[Prompt Builder] -- format USDA reference block + CoT prompt
-    |                "Use these if they match. For unlisted foods, use your own knowledge."
-    v
-[Qwen3.5-9B via lm-evaluation-harness] -- single LLM call, greedy decoding
-    |
-    v
-predicted carbohydrates (ACC: |pred - gt| < 7.5g, MAE: |pred - gt|)
-```
+## Pipeline
 
-**V2 adds one step** between vector search and nutrient lookup:
+### NutriBench (V3)
 
 ```
-[Qwen3-Embedding Vector Search] -- top-k candidates
-    |
-    v
-[GAT Ambiguity Check] -- if text score gap between top unique descriptions < 0.03:
-    |                       apply GAT coherence re-ranking (0.7*text + 0.3*gat)
-    |                     else: skip GAT, text embedding is confident
-    v
-[Nutrient Lookup] -- ...
+Meal: "126g of maize flour and 27g of raw sugar"
+  │
+  ├─ Regex extraction → ["maize flour", "sugar"]
+  │   3 patterns: "Xg of <food>", "<food> weighing Xg", "<food> (Xg)"
+  │   Strip cooking words (raw, boiled, fried, peeled, etc.)
+  │
+  ├─ Qwen3-Embedding cosine search (top-5 per term)
+  │
+  ├─ GAT re-ranking (when text scores are ambiguous)
+  │
+  ├─ Similarity threshold filter (≥ 0.60)
+  │   Discard unreliable candidates before showing to LLM
+  │
+  ├─ Format USDA reference block:
+  │   === USDA Reference (per 100g) ===
+  │   - maize flour:
+  │     1. "Corn flour, yellow" — Carbohydrate: 76.7g | ...
+  │     2. "Cornmeal, whole-grain" — Carbohydrate: 73.1g | ...
+  │   - sugar:
+  │     1. "Sugars, granulated" — Carbohydrate: 99.6g | ...
+  │
+  ├─ CoT prompt: reference block + "Let's think step by step"
+  │
+  └─ Qwen3.5-9B (greedy, max 8192 tokens) → numerical prediction
 ```
 
-**Baseline (no RAG):** 45.08% accuracy, 25.73g MAE (from [qwen_test](../../qwen_test/))
-
-### Mode 2: General Nutrition Assistant
-
-Personalized meal recommendations using LLM-driven gap analysis, GAT embedding neighbor expansion, and user preference tracking.
+### General Assistant
 
 ```
-"I ate apple and milk for breakfast, what should I eat for lunch?"
-    |
-    v
-[Heuristic Parser] -- extract eaten foods
-    |
-    v
-[Embedding Vector Search] -- text -> fdc_id -> nutrient profiles
-    |
-    v
-[LLM Call 1: Gap Analysis] -- "what's missing?" -> structured JSON targets
-    |
-    v
-[DuckDB Nutrient Query] -- find foods matching the gap
-    |
-    v
-[GAT Embedding Neighbors] -- expand candidates with nutritionally similar options
-    |
-    v
-[User Preference Re-ranking] -- boost foods the user has chosen before
-    |
-    v
-[LLM Call 2: Recommendation] -- generate personalized meal suggestion
-    |
-    v
-"For lunch, try grilled chicken breast with quinoa and a side salad..."
+"I ate an apple and milk for breakfast. What should I eat for lunch?"
+  │
+  ├─ Parse eaten foods → ["apple", "milk"]
+  ├─ Embedding search → USDA matches + nutrient profiles
+  │
+  ├─ LLM Call 1: Gap Analysis → {"protein_g": 35, "fat_g": 20, ...}
+  │
+  ├─ DuckDB: find foods high in gap nutrient → 5 seed candidates
+  ├─ GAT expansion: 5 neighbors per seed → ~30 total options
+  ├─ Preference re-ranking: boost previously chosen foods
+  │
+  └─ LLM Call 2: Natural-language recommendation
 ```
-
-**Key research contribution:** GAT embeddings from nutri_graph provide nutritionally coherent option expansion — not random foods, but structurally related alternatives learned from the food-nutrient graph.
 
 ## Prerequisites
 
-- **nutri_graph** knowledge base built (`../nutri_graph/data/nutri_kb.duckdb` and `../nutri_graph/outputs/embeddings/food_embeddings.npy`). See [nutri_graph README](../nutri_graph/README.md) for setup.
-- **Pre-computed text embeddings** (`data/embeddings/food_text_embeddings.npy`). Generate with `python scripts/build_embeddings.py` (required for V1/V2, not for V0).
-- **Qwen3.5-9B** — follow the [Unsloth Qwen3.5 guide](https://unsloth.ai/docs/models/qwen3.5#unsloth-studio-guide) to set up llama.cpp and download the GGUF model. See also [qwen_test](../../qwen_test/) for reference.
-- **Python 3.9+** with dependencies: `duckdb`, `numpy`, `requests`, `torch`, `transformers`, `scikit-learn`
+- **nutri_graph** KB built (`../nutri_graph/data/nutri_kb.duckdb` and `../nutri_graph/outputs/embeddings/food_embeddings.npy`)
+- **Pre-computed text embeddings** — generate with `python scripts/build_embeddings.py`
+- **Qwen3.5-9B** served via llama-server (OpenAI-compatible API)
+- Python 3.9+ with: `duckdb`, `numpy`, `requests`, `torch`, `transformers`, `scikit-learn`
 
 ## Setup
 
-```bash
-cd nutri_rag
-pip install -e .
+The full build order across both subsystems:
 
-# Pre-compute text embeddings (one-time, ~46 seconds on GPU)
+```bash
+# 1. Build USDA knowledge base (nutri_graph)
+cd ~/work/atlas/mimir/nutri_graph
+python scripts/build_kb.py
+
+# 2. Build text embeddings for USDA foods (nutri_rag)
+#    Must run AFTER build_kb.py (reads nodes_food table)
+#    Must run BEFORE build_recipe_kb.py (used for ingredient matching)
+cd ~/work/atlas/mimir/nutri_rag
 python scripts/build_embeddings.py
+
+# 3. Integrate FoodKG recipes into KB (nutri_graph)
+#    Adds recipe tables to nutri_kb.duckdb, does not modify USDA data
+cd ~/work/atlas/mimir/nutri_graph
+python scripts/build_recipe_kb.py
+
+# 4. Train GAT on full graph (nutri_graph)
+python scripts/train_GAT.py
 ```
+
+`build_embeddings.py` only needs re-running when the USDA food list changes (i.e., after `build_kb.py`). It does **not** need re-running after `build_recipe_kb.py` or `train_GAT.py`.
 
 ## Usage
 
 ### Start the LLM Server
 
-nutri_rag includes its own server script configured for single-user assistant use:
+Both scripts start the same Qwen3.5-9B model on port 8080 with identical config, differing only in concurrency:
 
 ```bash
+# For assistant / robot usage (parallel=1, single user)
 bash scripts/start_server.sh
+
+# For benchmark evaluation (parallel=3, concurrent requests)
+bash ../../qwen_test/start_server.sh
 ```
 
-This launches `llama-server` with `--parallel 1` (single-user, sequential requests). For NutriBench benchmarking, use `qwen_test/start_server.sh` instead (which uses `--parallel 6` for batch throughput).
+Note: PFoodReq benchmark (`run_pfoodreq_bench.py`) does not need the LLM server.
 
-| | `scripts/start_server.sh` | `qwen_test/start_server.sh` |
-|---|---|---|
-| **Purpose** | Assistant demo | NutriBench benchmark |
-| **Parallel** | 1 (single-user) | 6 (batch throughput) |
-| **Use with** | `demo_assistant.py` | `run_bench.py` |
-
-### Mode 1: NutriBench
-
-**Run the NutriBench benchmark:**
+### NutriBench Benchmark
 
 ```bash
-# V0: BM25 keyword matching (original baseline)
-python scripts/run_bench.py --mode v0 --limit 100
+# Run specific mode + nutrient + sample limit
+python scripts/run_bench.py --mode v3 --nutrient protein --limit 200 --concurrent 3
 
-# V1: Text embedding search (default)
-python scripts/run_bench.py --mode v1 --limit 100
+# Run all combinations
+python scripts/run_all_bench.py --modes v1 v3 --nutrients carb protein --limit 100
 
-# V2: Text embedding + GAT re-ranking
-python scripts/run_bench.py --mode v2 --limit 100
-
-# Full benchmark, all 15,617 samples
-python scripts/run_bench.py --mode v1
+# Baseline (no RAG) for comparison
+python scripts/run_baseline.py
 ```
 
-Results are saved as `results/results_rag_{v0,v1,v2}_<timestamp>.json` with per-sample logs in JSONL format.
-
-**Run baseline (no RAG) for comparison:**
+Results saved to `results/results_{mode}_{nutrient}_{timestamp}.json` with per-sample logs in JSONL.
 
 ```bash
-bash ../../qwen_test/run_bench.sh nutribench_v2_cot 100
-```
-
-**Analyze retrieval quality:**
-
-```bash
-# Similarity distribution + ACC/MAE correlation plots
-python scripts/plot_similarity_analysis.py --limit 100 \
-  --samples-v1 results/samples_nutribench_v2_rag_<timestamp>.jsonl
-```
-
-**Compare against baseline:**
-
-```bash
+# Compare results
 python scripts/compare_results.py
-```
 
-**Test retrieval interactively:**
+# Retrieval quality analysis
+python scripts/plot_similarity_analysis.py --limit 100
 
-```bash
+# Interactive retrieval demo
 python scripts/demo_bench.py
 ```
 
-Type a meal description to see what USDA foods are retrieved and the augmented prompt:
+### PFoodReq Benchmark
 
+```bash
+# Full test set (2244 queries, no LLM server needed)
+python scripts/run_pfoodreq_bench.py
+
+# Quick test
+python scripts/run_pfoodreq_bench.py --limit 10
+
+# With LLM verification (optional)
+python scripts/run_pfoodreq_bench.py --ablation with_llm
 ```
-Meal: 126 grams of maize flour and 27 grams of raw sugar
 
-=== USDA Nutritional Reference Data (per 100g) ===
-[1] "Corn flour, masa harina, white, dry, raw" (USDA #2711103)
-    Carbohydrate: 76.7g | Protein: 7.6g | Fat: 4.3g | Energy: 376.1kcal
-[2] "Sugars, granulated" (USDA #334247)
-    Carbohydrate: 99.6g | Protein: 0.0g | Fat: 0.3g | Energy: 385.0kcal
-```
-
-### Mode 2: General Assistant
+### General Assistant
 
 ```bash
 python scripts/demo_assistant.py
 ```
 
-Interactive CLI that analyzes what you've eaten and recommends your next meal. The input parser automatically separates the food description from the question:
-
-```
-What did you eat? I ate an apple and a cup of milk for breakfast, what should I eat for lunch?
-
-Analyzing your breakfast...
-Recommendation for lunch:
-For lunch, try grilled chicken breast (about 150g) with a cup of
-brown rice and some steamed vegetables...
-```
-
-The assistant learns from your choices over time via the user preference database.
-
 ## Project Structure
 
 ```
 nutri_rag/
-  pyproject.toml
-  RAG_PLAN.md                  # Implementation plan for V1/V2 RAG
   nutri_rag/
-    config.py                  # Paths, constants, LLM settings, embedding model config
-    parse.py                   # Heuristic meal parser (regex-based)
+    config.py                  # Paths, thresholds, model config
     embedding.py               # TextEmbedder (Qwen3-Embedding) + FoodVectorIndex + GATIndex
-    search.py                  # V1/V2: Embedding vector search + optional GAT re-ranking
-    search_bm25.py             # V0: DuckDB BM25 full-text search (baseline)
+    search.py                  # V1/V2: embedding search + optional GAT re-ranking
+    search_bm25.py             # V0: DuckDB BM25 full-text search
+    parse.py                   # Heuristic meal parser
     llm.py                     # OpenAI-compatible chat client
 
-    bench/                     # --- Mode 1: NutriBench ---
-      retriever.py             # V1/V2: Regex extraction -> embedding search -> nutrients
-      retriever_bm25.py        # V0: Regex extraction -> BM25 search -> nutrients
-      prompt.py                # Format USDA reference block for CoT
+    bench/                     # NutriBench benchmark
+      retriever.py             # V1/V2/V3: regex extraction → embedding search → nutrients
+      retriever_bm25.py        # V0: regex extraction → BM25 search → nutrients
+      prompt.py                # USDA reference block formatting (legacy, per-item, multi-candidate)
+      nutrient_prompts.py      # System prompts + few-shot CoT examples per nutrient
+      task_utils.py            # Shared lm-eval task utilities
 
-    assistant/                 # --- Mode 2: General Assistant ---
-      gap_analyzer.py          # LLM Call 1: meal -> structured JSON targets
-      food_recommender.py      # DB nutrient query + GAT neighbor expansion
-      preference_db.py         # User choice history (DuckDB)
-      prompt.py                # Format recommendations for LLM Call 2
+    assistant/                 # General assistant
+      gap_analyzer.py          # LLM-driven nutritional gap analysis
+      food_recommender.py      # DB query + GAT neighbor expansion
+      preference_db.py         # User preference tracking (DuckDB)
+      prompt.py                # Recommendation prompt formatting
       pipeline.py              # End-to-end orchestration
 
   tasks/
-    nutribench_v2_rag_bm25/    # V0 task definition (BM25)
-    nutribench_v2_rag/         # V1 task definition (text embedding)
-    nutribench_v2_rag_gat/     # V2 task definition (text + GAT)
-
-  data/
-    embeddings/
-      food_text_embeddings.npy # Pre-computed Qwen3-Embedding vectors (74175 x 1024)
-      food_fdc_ids.npy         # fdc_id array matching embedding rows
+    nutribench_v2_rag_bm25/    # V0 task definition
+    nutribench_v2_rag/         # V1 task definition
+    nutribench_v2_rag_gat/     # V2 task definition
+    nutribench_v2_rag_gat_multi/ # V3 task definition
 
   scripts/
-    build_embeddings.py        # One-time: encode all USDA descriptions
-    start_server.sh            # llama-server for assistant mode (parallel=1)
-    demo_bench.py              # Interactive NutriBench retrieval demo
+    build_embeddings.py        # Encode all USDA descriptions (one-time)
+    run_bench.py               # Single benchmark run (--mode, --nutrient, --limit)
+    run_all_bench.py           # Run all mode/nutrient combinations
+    run_baseline.py            # No-RAG baseline benchmark
+    compare_results.py         # Result comparison
+    plot_similarity_analysis.py # Retrieval quality plots
+    demo_bench.py              # Interactive retrieval demo
     demo_assistant.py          # Interactive assistant CLI
-    run_bench.py               # NutriBench benchmark runner (--mode v0/v1/v2)
-    compare_results.py         # Baseline vs RAG comparison
-    plot_similarity_analysis.py # Retrieval quality visualization
+    start_server.sh            # llama-server launcher
+
+  data/embeddings/             # Pre-computed text embeddings
+  results/                     # Benchmark outputs
 ```
 
-## Module Details
+## Key Constants (`config.py`)
 
-### Shared Core
-
-| Module | Purpose |
-|--------|---------|
-| `config.py` | Paths to DuckDB, embeddings, LLM endpoint (`localhost:8080`), embedding model name (`Qwen/Qwen3-Embedding-0.6B`), key nutrient names |
-| `parse.py` | Splits meal text on commas/and/with, extracts quantities+units via regex, strips filler words. Used by assistant mode. |
-| `embedding.py` | `TextEmbedder`: Qwen3-Embedding wrapper with last-token pooling and task instructions. `FoodVectorIndex`: pre-computed cosine search over 74K USDA descriptions. `GATIndex`: nutri_graph GAT embeddings for nutritional similarity. |
-| `search.py` | Semantic vector search via `FoodVectorIndex`. Encodes query with task instruction, retrieves candidates, filters by macro data availability. With `use_gat=True`, applies GAT coherence re-ranking when text match is ambiguous. |
-| `search_bm25.py` | V0 baseline: DuckDB BM25 full-text search with confidence threshold (`MIN_BM25_SCORE=1.0`), 16 cross-language synonyms, macro-count re-ranking. |
-| `llm.py` | Thin `requests`-based client for OpenAI-compatible `/v1/chat/completions`, with `<think>` tag stripping and robust JSON extraction (handles truncated output) |
-
-### Mode 1: NutriBench (`bench/`)
-
-| Module | Purpose |
-|--------|---------|
-| `retriever.py` | Extracts food terms from meal descriptions via 3 regex patterns (handles "Xg of food", "food weighing Xg", "food (Xg)"), strips cooking/prep words, then does embedding search + gets per-100g nutrients. Supports `use_gat` flag for V2. |
-| `retriever_bm25.py` | V0 variant: same regex extraction, but uses BM25 search instead of embeddings. Reuses `FoodContext` and `_extract_food_terms` from `retriever.py`. |
-| `prompt.py` | Formats nutrients into a `=== USDA Nutritional Reference Data ===` block. Filters out entries without carb data. Instructs model to use own knowledge for unlisted foods. |
-
-### Mode 2: General Assistant (`assistant/`)
-
-| Module | Purpose |
-|--------|---------|
-| `gap_analyzer.py` | LLM Call 1: sends eaten foods' nutrient profiles to LLM, gets back structured JSON with reasoning and macro targets (`{"protein_g": 35, "fat_g": 20, ...}`) |
-| `food_recommender.py` | Queries DuckDB for gap-filling foods, then expands each candidate via GAT embedding cosine similarity to find nutritionally similar alternatives |
-| `preference_db.py` | DuckDB table tracking offered/chosen foods per user, scores by `chosen_count / offered_count` ratio |
-| `prompt.py` | Formats gap analysis + ranked options + preference history into LLM Call 2 prompt |
-| `pipeline.py` | `NutriAssistant` class orchestrating the full 8-step pipeline |
-
-## How It Works
-
-### Benchmark Food Term Extraction
-
-The benchmark retriever uses regex patterns (not the heuristic parser) to extract food terms from NutriBench meal descriptions:
-
-```
-Input:  "126 grams of raw maize flour and 27 grams of raw sugar"
-Terms:  ["maize flour", "sugar"]          (Pattern A: "Xg of <food>", strip "raw")
-
-Input:  "a plain bun weighing 126 grams"
-Terms:  ["bun"]                            (Pattern B: "<food> weighing Xg", strip "plain")
-
-Input:  "a boiled large onion (1g)"
-Terms:  ["onion"]                          (Pattern C: "<food> (Xg)", strip "boiled large")
-```
-
-### V0: BM25 Keyword Search
-
-The original approach uses DuckDB's built-in FTS extension with English stemming:
-
-```
-"maize flour"  → synonym → "corn flour" → BM25 score 3.2 ✓ → "Flour, corn, yellow"
-"groundnuts"   → synonym → "peanuts"    → BM25 score 2.1 ✓ → "Peanuts, raw"
-"bun"          → BM25 score < 1.0 ✗     → no match → model uses own knowledge
-```
-
-Limitations: requires hardcoded synonyms, fails on vocabulary mismatches not in the synonym list.
-
-### V1: Text Embedding Search
-
-Replaces BM25 with Qwen3-Embedding-0.6B semantic vector search:
-
-```
-"maize flour"  → encode → cosine search → "Corn flour, masa harina" (sim=0.634) ✓
-"groundnuts"   → encode → cosine search → "Peanuts, raw"            (sim=0.551) ✓
-"bun"          → encode → cosine search → "Rolls, hamburger"        (sim=0.547) ✓
-```
-
-No synonyms needed — the embedding model understands semantic equivalence. Pre-computed embeddings (74,175 x 1024) enable fast numpy dot-product search.
-
-### V2: GAT Ambiguity-Gated Re-ranking
-
-When text embedding returns ambiguous candidates (small score gap between top unique descriptions), GAT nutritional-similarity re-ranking breaks the tie:
-
-```
-"kasepa fish" → text candidates:
-  1. "Fish, catfish"  (text_sim=0.556)
-  2. "Fish, salmon"   (text_sim=0.552)   gap=0.004 < 0.03 → AMBIGUOUS → use GAT
-
-GAT re-ranking: catfish and salmon have different nutritional profiles.
-GAT picks the one more coherent with the overall candidate group.
-
-"sugar" → text candidates:
-  1. "Sugars, granulated"               (text_sim=0.611)
-  2. "Safeway Fine Granulated Sugar"    (text_sim=0.547)   gap=0.064 > 0.03 → CONFIDENT → skip GAT
-```
-
-### Assistant Parser Example
-
-The assistant mode uses the heuristic parser (different from benchmark):
-
-```
-Input:  "I ate an apple and milk for breakfast"
-Output: [ParsedItem(food_term="apple"), ParsedItem(food_term="milk")]
-```
-
-### GAT Embedding Neighbor Expansion
-
-After the DB finds seed candidates that fill the nutritional gap, GAT embeddings provide alternative options that are nutritionally similar:
-
-```
-Seed: "Chicken, breast, roasted" (31g protein/100g)
-  GAT neighbors:
-    - "Turkey, breast, roasted"   (similar lean protein)
-    - "Pork, tenderloin, roasted" (similar lean meat)
-    - "Salmon, Atlantic, cooked"  (similar protein source)
-```
-
-This leverages the learned food-nutrient graph structure from nutri_graph's GATv2 model (74,175 foods x 64-dim embeddings).
-
-### User Preference Re-ranking
-
-The preference DB tracks what the user picks from offered options:
-
-```
-Chicken breast:  chosen 4/4 times -> score 1.0 (favorite)
-Salmon:          chosen 2/3 times -> score 0.67
-Tofu:            chosen 0/2 times -> score 0.0 (skipped)
-Pork tenderloin: never offered    -> score 0.5 (neutral)
-```
-
-New users start with no history (cold start) — options are ordered by GAT similarity score until preferences are learned.
-
-## Dependencies on nutri_graph
-
-| Component | Source | Used in |
-|-----------|--------|---------|
-| `nutri_kb.duckdb` | nutri_graph | All modes — food descriptions + nutrient lookup |
-| `food_embeddings.npy` | nutri_graph (trained GAT) | V2 benchmark (re-ranking) + Mode 2 assistant (neighbor expansion) |
-| `nodes_food` table | nutri_graph | All modes — food descriptions |
-| `edges_food_contains_nutrient` table | nutri_graph | All modes — per-100g nutrient values |
-| `food_text_embeddings.npy` | `build_embeddings.py` (Qwen3-Embedding) | V1/V2 benchmark + Mode 2 assistant — semantic food search |
+| Constant | Value | Purpose |
+|----------|-------|---------|
+| `SIMILARITY_THRESHOLD` | 0.60 | Cosine sim below this → filter out candidate |
+| `TOP_K_FOODS` | 3 | Max DB matches per parsed food item |
+| `GAT_NEIGHBORS_K` | 5 | GAT embedding neighbors per seed |
+| `TEXT_EMBEDDING_DIM` | 1024 | Qwen3-Embedding output dimension |
+| `LLM_MODEL` | qwen3.5-9b | Local LLM for generation |

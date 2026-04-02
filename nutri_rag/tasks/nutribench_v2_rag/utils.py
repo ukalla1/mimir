@@ -30,4 +30,4 @@ def doc_to_text_rag(doc):
     retriever = _get_retriever()
     meal = doc["meal_description"]
     contexts = retriever.retrieve(meal)
-    return build_rag_doc_to_text(meal, contexts)
+    return build_rag_doc_to_text(meal, contexts, per_item=True)
