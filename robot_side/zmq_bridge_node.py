@@ -9,7 +9,7 @@ Message types handled (identified by presence of fields):
 
 1. Navigation goal  — has 'x' and 'y', no 'command_type'
    {"goal_id": "...", "landmark": "kitchen", "x": 1.5, "y": 2.3}
-   → Publish to /way_point, wait for /nav_result
+   → Publish geometry_msgs/PointStamped to /way_point
 
 2. Spin command     — command_type == 'spin'
    {"goal_id": "...", "command_type": "spin", "angle_deg": 120}
@@ -35,19 +35,41 @@ import argparse
 import json
 import time
 
+import rclpy
+from rclpy.node import Node
+from geometry_msgs.msg import PointStamped
 import zmq
 
 
 # ---------------------------------------------------------------------------
-# Handler stubs — replace these with actual ROS2 integration
+# ROS2 node (initialized once at startup)
+# ---------------------------------------------------------------------------
+
+_ros_node: Node = None
+_waypoint_pub = None
+
+
+def init_ros():
+    global _ros_node, _waypoint_pub
+    rclpy.init()
+    _ros_node = rclpy.create_node('zmq_bridge_node')
+    _waypoint_pub = _ros_node.create_publisher(PointStamped, '/way_point', 10)
+    print('==> ROS2 node initialized, publishing to /way_point')
+
+
+def shutdown_ros():
+    if _ros_node is not None:
+        _ros_node.destroy_node()
+    rclpy.shutdown()
+
+
+# ---------------------------------------------------------------------------
+# Handlers
 # ---------------------------------------------------------------------------
 
 def handle_navigate(goal_id: str, x: float, y: float, landmark: str) -> dict:
     """
-    Handle a navigation goal.
-
-    TODO: Publish geometry_msgs/PoseStamped to /way_point, then block until
-    /nav_result reports success or failure.
+    Publish a navigation goal to /way_point (geometry_msgs/PointStamped).
 
     Args:
         goal_id:  Unique ID for this goal (for tracking).
@@ -60,13 +82,26 @@ def handle_navigate(goal_id: str, x: float, y: float, landmark: str) -> dict:
     target = landmark if landmark else f'({x:.2f}, {y:.2f})'
     print(f'  [navigate] goal={goal_id[:8]}  target={target}  x={x:.2f} y={y:.2f}')
 
-    # --- Stub: simulate navigation ---
-    time.sleep(1.0)
+    try:
+        msg = PointStamped()
+        msg.header.stamp = _ros_node.get_clock().now().to_msg()
+        msg.header.frame_id = 'map'
+        msg.point.x = x
+        msg.point.y = y
+        msg.point.z = 0.0
+        _waypoint_pub.publish(msg)
+        print(f'  [navigate] published /way_point x={x:.3f} y={y:.3f}')
+    except Exception as e:
+        return {
+            'goal_id': goal_id,
+            'status': 'failed',
+            'message': f'Failed to publish /way_point: {e}',
+        }
 
     return {
         'goal_id': goal_id,
         'status': 'success',
-        'message': f'Arrived at {target}',
+        'message': f'Goal sent to {target} (x={x:.2f}, y={y:.2f})',
     }
 
 
@@ -227,6 +262,8 @@ def main():
     parser.add_argument('--port', type=int, default=5555, help='ZMQ REP port (default: 5555)')
     args = parser.parse_args()
 
+    init_ros()
+
     ctx = zmq.Context()
     sock = ctx.socket(zmq.REP)
     addr = f'tcp://0.0.0.0:{args.port}'
@@ -261,6 +298,7 @@ def main():
     finally:
         sock.close()
         ctx.term()
+        shutdown_ros()
 
 
 if __name__ == '__main__':
