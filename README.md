@@ -35,14 +35,25 @@ Mimir combines **Graph Attention Networks (GAT)** with **Retrieval-Augmented Gen
                                   ▼
                     ┌──────────────────────────┐
                     │      nutri-atlas          │
-                    │  (Robot Integration)      │
+                    │  (Operator PC)            │
                     │                           │
                     │  User ─► Qwen Agent       │
                     │  ─► Tool calls            │
-                    │    ├─ Navigation (ZMQ)    │
-                    │    ├─ Object detection    │
-                    │    └─ Meal recommendation │
-                    │       (via nutri_rag)     │
+                    │    ├─ Meal recommendation │
+                    │    │   (via nutri_rag)    │
+                    │    └─ Navigation / Vision │
+                    │        (via ZMQ client)   │
+                    └────────────┬─────────────┘
+                                 │ ZMQ (TCP)
+                                 ▼
+                    ┌──────────────────────────┐
+                    │      robot_side           │
+                    │  (Robot Onboard PC)       │
+                    │                           │
+                    │  zmq_bridge_node :5555    │
+                    │    → ROS2 nav / cmd_vel   │
+                    │  zmq_object_server :5556  │
+                    │    → ROS2 camera detect   │
                     └──────────────────────────┘
 ```
 
@@ -73,16 +84,37 @@ Three modes:
 - **General Assistant**: Interactive meal recommendations with GAT neighbor expansion, gap analysis, and user preference learning
 - **PFoodReq Benchmark**: Personalized food recommendation using deterministic constraint filtering + GAT re-ranking
 
-### [nutri-atlas](nutri-atlas/) — Robot Integration
+### [nutri-atlas](nutri-atlas/) — Robot Integration (Operator Side)
 
 Connects the nutrition assistant to a Clearpath Go2 robot via Qwen Agent tool-calling. The robot assistant can navigate, detect objects, and provide meal recommendations — all through natural language.
 
 - **Navigation tools**: go to landmarks, spin, detect objects via camera
 - **Nutrition tool**: `get_meal_recommendation` wraps `nutri_rag`'s full pipeline (parse → gap analysis → GAT expansion → recommendation)
 - **LLM**: Qwen3.5-9B as the orchestration agent, deciding when to call navigation vs nutrition tools
-- **Communication**: ZMQ bridge to ROS2 on the robot
+- **Communication**: ZMQ REQ client → sends commands to robot_side
 
 Example: *"I ate an apple and milk for breakfast, what should I eat for lunch?"* → the agent calls `get_meal_recommendation` → returns a personalized suggestion based on nutritional gap analysis.
+
+### [robot_side](robot_side/) — ZMQ Bridge (Robot Side)
+
+Runs on the robot's onboard computer. Two ZMQ REP servers receive commands from nutri-atlas and dispatch them to ROS2:
+
+- **`zmq_bridge_node.py`** (port 5555): handles navigation goals, spin, move, current object queries, and LiDAR scans. Each command blocks until the robot completes the action.
+- **`zmq_object_server.py`** (port 5556): serves a persistent map of all detected objects. A background ROS2 subscriber updates the map as the camera detects new objects.
+
+```
+nutri-atlas (operator PC)          robot_side (robot onboard)
+  zmq_client.py ──ZMQ REQ──→  zmq_bridge_node.py ──→ ROS2 /way_point, /cmd_vel
+  object_tool.py ─ZMQ REQ──→  zmq_object_server.py ──→ ROS2 camera detections
+```
+
+### [PFoodReq](PFoodReq/) — Benchmark Data
+
+Original dataset and BAMnet baseline from WSDM 2021. Contains test/dev/train splits with ~82K recipes from Recipe1M. Used by `nutri_graph` for recipe knowledge graph construction and by `nutri_rag` for benchmark evaluation.
+
+### [foodkg.github.io](foodkg.github.io/) — FoodKG Construction (External)
+
+External research project for building the FoodKG knowledge graph from USDA + Recipe1M data. Mimir uses its `recipe_kg.json` output as input for `nutri_graph/scripts/build_recipe_kb.py`. Not needed for normal operation — only required if rebuilding the recipe knowledge graph from scratch.
 
 ## Results
 
@@ -214,52 +246,55 @@ python robot_assistant.py
 
 ## Two-Computer Deployment (Same Wi-Fi)
 
-Use this when running the assistant from another computer on the same network.
+The system is designed to run across two machines on the same network:
 
-### Machine Roles
+```
+┌─────────────────────────────────┐       ┌─────────────────────────────┐
+│  Operator PC (GPU required)     │       │  Robot Onboard PC           │
+│                                 │       │                             │
+│  LLM server (:8080)             │  TCP  │  zmq_bridge_node (:5555)   │
+│  robot_assistant.py ────────────┼──────►│  zmq_object_server (:5556) │
+│  nutri_rag (embeddings + DB)    │       │  ROS2 runtime              │
+│  nutri_graph (KB + GAT)         │       │                             │
+└─────────────────────────────────┘       └─────────────────────────────┘
+```
 
-1. Robot-side machine:
-- Runs ZMQ servers (ports `5555`, `5556`)
-- Usually connected to ROS2/robot runtime
+### Robot Onboard PC
 
-2. Operator machine:
-- Runs `nutri_graph` + `nutri_rag` + `nutri-atlas` Python code
-- Runs LLM server on port `8080`
-
-### Robot-side Machine Commands
+Copy `robot_side/` to the robot and start the two ZMQ servers:
 
 ```bash
-cd ~/work/atlas/mimir/robot_side
+# Terminal 1
 python zmq_bridge_node.py --port 5555
+
+# Terminal 2
 python zmq_object_server.py --port 5556
 ```
 
-### Operator Machine Commands
+Only dependency: `pip install pyzmq`.
+
+### Operator PC
+
+Complete steps 0–6 from [Implementation Process](#implementation-process-all-submodules) first, then:
 
 ```bash
-# 1) Start LLM server first
+# Terminal 1 — LLM server
 cd ~/work/atlas/mimir/nutri_rag
 bash scripts/start_server.sh
 
-# 2) Set robot-side IP/ports for tool clients
-export ROBOT_IP=<robot_side_machine_ip>
-export ROBOT_PORT=5555
-export OBJECT_SERVER_IP=<robot_side_machine_ip>
-export OBJECT_SERVER_PORT=5556
-export NAV_TIMEOUT_MS=60000
-
-# 3) Start robot assistant
+# Terminal 2 — robot assistant
+export ROBOT_IP=<robot_ip>            # e.g. 192.168.0.114
+export OBJECT_SERVER_IP=<robot_ip>    # same IP
 cd ~/work/atlas/mimir/nutri-atlas/robot_control
 python robot_assistant.py
 ```
 
-Network checklist:
-- Both machines are on the same subnet (for example `192.168.1.x`).
-- Firewall allows inbound TCP `5555` and `5556` on robot-side machine.
-- Firewall allows local process access to `8080` on operator machine.
+### Network Checklist
 
-Important current behavior:
-- `robot_assistant.py` and `nutri_rag` are currently configured to call the LLM at `localhost:8080`, so run the assistant on the same machine where `nutri_rag/scripts/start_server.sh` is running.
+- Both machines on the same subnet (e.g. `192.168.0.x`).
+- Verify connectivity: `ping <robot_ip>` from operator PC.
+- Firewall allows inbound TCP `5555` and `5556` on robot.
+- LLM runs on `localhost:8080` on the operator PC (no cross-machine access needed).
 
 ## Tech Stack
 
@@ -319,8 +354,14 @@ mimir/
 │   │   └── config/landmarks.yaml  # Named room positions
 │   └── benchmark_tasks.yaml       # 30+ graded robot benchmark tasks
 │
+├── robot_side/                    # ZMQ servers (runs on robot onboard PC)
+│   ├── zmq_bridge_node.py         # REP server :5555 → ROS2 nav/motion/lidar
+│   └── zmq_object_server.py       # REP server :5556 → persistent object map
+│
 ├── PFoodReq/                      # PFoodReq benchmark data (WSDM 2021)
 │   └── data/kbqa_data/            # test/dev/train splits + dish_info_map
+│
+├── foodkg.github.io/              # FoodKG construction (external, optional)
 │
 └── README.md
 ```
