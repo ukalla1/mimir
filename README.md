@@ -140,19 +140,58 @@ This is the recommended end-to-end order when deploying on a new machine.
 
 ### 0) Environment Setup
 
+**Requirements:**
+- Python 3.9+ (tested on 3.10)
+- Conda environment recommended
+- Kaggle API token at `~/.kaggle/kaggle.json` (for data download)
+- NVIDIA GPU recommended for GAT training
+
+#### Step 0a: Install PyTorch first
+
+PyTorch Geometric extensions require PyTorch to already be present at build time — install it before anything else.
+
+```bash
+# Check your CUDA version with: nvidia-smi (top-right corner shows CUDA version)
+# Adjust the index URL to match (cu118, cu121, cu124, cpu, etc.)
+pip install torch==2.5.0 --index-url https://download.pytorch.org/whl/cu124
+```
+
+#### Step 0b: Install PyTorch Geometric extensions
+
+Use **pre-built wheels** matching your exact torch + CUDA version. Installing mismatched wheels (e.g. cu121 wheels with a cu124 torch) will appear to succeed but crash at runtime with `undefined symbol` errors.
+
+```bash
+# Replace torch-2.5.0+cu124 with your actual torch+CUDA combo
+pip install torch_scatter torch_sparse torch_cluster torch_spline_conv \
+  -f https://data.pyg.org/whl/torch-2.5.0+cu124.html
+```
+
+Always verify the install works at runtime before proceeding:
+```bash
+python -c "import torch_scatter; print('torch_scatter OK')"
+python -c "import torch_sparse; print('torch_sparse OK')"
+```
+
+If you see `OSError: undefined symbol: _ZN5torch3jit17parseSchemaOrNameERKSs`, the wheels don't match your torch version. Uninstall and reinstall with the correct URL from https://data.pyg.org/whl/
+
+> **Note:** `nutri_graph/requirements.txt` has a line `torch_spline_conv -f https://data.pyg.org/whl/torch-2.2.0+cpu.html`. Skip that line — use the versioned wheel URL above for all four PyG packages instead.
+
+#### Step 0c: Install all remaining packages
+
 ```bash
 cd ~/work/atlas/mimir
-python -m venv .venv
-source .venv/bin/activate
-pip install -U pip
 
 # Install local packages
 pip install -e nutri_graph
 pip install -e nutri_rag
 
-# Install explicit deps used by graph/robot scripts
-pip install -r nutri_graph/requirements.txt
-pip install qwen-agent pyzmq pyyaml json5 requests transformers scikit-learn duckdb numpy torch
+# Install remaining nutri_graph dependencies
+pip install torch-geometric
+pip install duckdb pandas scikit-learn umap-learn plotly kaleido \
+            pyvis networkx tqdm matplotlib kaggle kagglehub pyarrow
+
+# Install nutri-atlas dependencies
+pip install qwen-agent pyzmq pyyaml json5 requests transformers
 ```
 
 Notes:
@@ -211,7 +250,87 @@ cd ~/work/atlas/mimir/nutri_rag
 python scripts/build_recipe_embeddings.py
 ```
 
-### 6) Start LLM Server (`nutri_rag`)
+### 6) Build llama.cpp and Download Qwen3.5-9B
+
+#### 6a: Build llama.cpp
+
+The LLM server uses [llama.cpp](https://github.com/ggml-org/llama.cpp). `start_server.sh` expects the binary at `~/softwares/llama.cpp/llama-server`.
+
+```bash
+mkdir -p ~/softwares
+cd ~/softwares
+git clone https://github.com/ggml-org/llama.cpp
+```
+
+**Option A — With sudo (simpler):**
+
+```bash
+sudo apt-get install pciutils build-essential cmake curl libcurl4-openssl-dev -y
+
+cmake llama.cpp -B llama.cpp/build -DBUILD_SHARED_LIBS=OFF -DGGML_CUDA=ON
+cmake --build llama.cpp/build --config Release -j --clean-first \
+    --target llama-server
+
+cp llama.cpp/build/bin/llama-server llama.cpp/llama-server
+```
+
+**Option B — Without sudo (no root access):**
+
+First, find the nvcc path on your system:
+```bash
+find /usr/local/cuda* -name nvcc 2>/dev/null
+```
+
+Then pass it directly to cmake — no PATH changes needed for the build itself:
+```bash
+cmake llama.cpp -B llama.cpp/build \
+    -DBUILD_SHARED_LIBS=OFF \
+    -DGGML_CUDA=ON \
+    -DCMAKE_CUDA_COMPILER=/usr/local/cuda-13.0/bin/nvcc
+
+cmake --build llama.cpp/build --config Release -j --clean-first \
+    --target llama-server
+
+cp llama.cpp/build/bin/llama-server llama.cpp/llama-server
+```
+
+> **Optional — add nvcc to PATH permanently:** If you want `nvcc` available globally in your shell (e.g. for other CUDA tools), add these to `~/.bashrc`. This is NOT required for the cmake build above, which uses the full path directly.
+> ```bash
+> echo 'export PATH=/usr/local/cuda-13.0/bin:$PATH' >> ~/.bashrc
+> echo 'export CUDA_HOME=/usr/local/cuda-13.0' >> ~/.bashrc
+> source ~/.bashrc
+> ```
+> These are user-level changes only — no sudo needed, no system-wide impact.
+
+> **nvcc path:** Do NOT use `/usr/local/cuda-12.1/bin/nvcc`. The latest llama.cpp targets `compute_120` (Blackwell GPUs) which requires CUDA 12.8+. Using CUDA 12.1 will fail with `nvcc fatal : Unsupported gpu architecture 'compute_120'`. Use CUDA 13.0 (or 12.8+) instead. If `nvcc` is not found at all, ask your sysadmin to install the CUDA toolkit.
+
+> **Compile time:** Expect 15–30 minutes. The build compiles many CUDA kernel variants. Progress appears as `[ XX%] Building CUDA object ...` lines — this is normal. The GPU is not used during compilation; `nvidia-smi` will show no compute processes until the server actually runs.
+
+Verify the build succeeded:
+```bash
+~/softwares/llama.cpp/llama-server --version
+```
+
+#### 6b: Download Qwen3.5-9B GGUF
+
+`start_server.sh` expects the model at `/home/boxun/work/atlas/unsloth/Qwen3.5-9B-GGUF/Qwen3.5-9B-UD-Q4_K_XL.gguf`. Download only the `UD-Q4_K_XL` quantization (~6GB), which gives good quality/speed on a 24GB+ GPU:
+
+```bash
+mkdir -p /home/boxun/work/atlas/unsloth
+
+python -c "
+from huggingface_hub import snapshot_download
+snapshot_download(
+    repo_id='unsloth/Qwen3.5-9B-GGUF',
+    local_dir='/home/boxun/work/atlas/unsloth/Qwen3.5-9B-GGUF',
+    allow_patterns=['*UD-Q4_K_XL*']
+)
+"
+```
+
+> **Note:** `huggingface-cli` may not be in PATH even if `huggingface_hub` is installed. Use the Python API above as a reliable alternative.
+
+### 7) Start LLM Server (`nutri_rag`)
 
 Required for:
 - `nutri_rag/scripts/run_bench.py`
@@ -224,7 +343,7 @@ bash scripts/start_server.sh
 # serves OpenAI-compatible endpoint on http://0.0.0.0:8080/v1
 ```
 
-### 7) Run Each Subsystem
+### 8) Run Each Subsystem
 
 ```bash
 # A) NutriBench benchmark
