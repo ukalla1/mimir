@@ -13,7 +13,7 @@ Message types handled:
 
 1. Navigation goal  — has 'x' and 'y', no 'command_type'
    {"goal_id": "...", "landmark": "kitchen", "x": 1.5, "y": 2.3}
-   → Publish geometry_msgs/PoseStamped to /goal_pose (Nav2-compatible)
+   → Send nav2_msgs/action/NavigateToPose goal to /navigate_to_pose
 
 2. Spin command     — command_type == 'spin'
    {"goal_id": "...", "command_type": "spin", "angle_deg": 120}
@@ -50,11 +50,14 @@ import time
 
 import zmq
 import rclpy
+from action_msgs.msg import GoalStatus
 from rclpy.node import Node
 from rclpy.duration import Duration
-from geometry_msgs.msg import PoseStamped, Twist
+from rclpy.action import ActionClient
+from geometry_msgs.msg import Twist
 from sensor_msgs.msg import PointCloud2
 from std_msgs.msg import String
+from nav2_msgs.action import NavigateToPose
 from tf2_ros import Buffer, TransformListener, LookupException, ConnectivityException, ExtrapolationException
 
 
@@ -67,6 +70,7 @@ _MAX_VX   = 0.5   # m/s
 # Motion timeouts
 _SPIN_TIMEOUT = 30.0   # seconds
 _MOVE_TIMEOUT = 30.0   # seconds
+_NAV_TIMEOUT = 120.0   # seconds
 
 # cmd_vel publish rate during spin/move
 _CTRL_HZ = 20.0
@@ -97,8 +101,8 @@ class ZMQBridgeNode(Node):
         self._tf_listener = TransformListener(self._tf_buffer, self)
 
         # --- ROS2 publishers ---
-        self._goal_pose_pub = self.create_publisher(PoseStamped, '/goal_pose', 10)
         self._cmd_vel_pub  = self.create_publisher(Twist, '/cmd_vel', 10)
+        self._nav_client = ActionClient(self, NavigateToPose, '/navigate_to_pose')
 
         # --- LiDAR scan cache (written by ROS callback, read by ZMQ thread) ---
         self._latest_scan      = None
@@ -184,30 +188,78 @@ class ZMQBridgeNode(Node):
             }
 
     # ------------------------------------------------------------------
-    # Navigate: publish PoseStamped to /goal_pose (Nav2).
-    # No TF required — Nav2 handles arrival.
+    # Navigate: call Nav2 action /navigate_to_pose and wait for result.
     # ------------------------------------------------------------------
     def _handle_navigate(self, goal_id: str, x: float, y: float, landmark: str) -> dict:
         target = landmark if landmark else f'({x:.2f}, {y:.2f})'
-        try:
-            msg = PoseStamped()
-            msg.header.stamp    = self.get_clock().now().to_msg()
-            msg.header.frame_id = _MAP_FRAME
-            msg.pose.position.x = x
-            msg.pose.position.y = y
-            msg.pose.position.z = 0.0
-            msg.pose.orientation.x = 0.0
-            msg.pose.orientation.y = 0.0
-            msg.pose.orientation.z = 0.0
-            msg.pose.orientation.w = 1.0
-            self._goal_pose_pub.publish(msg)
-            self.get_logger().info(f'Published /goal_pose x={x:.3f} y={y:.3f}')
-        except Exception as e:
-            return {'goal_id': goal_id, 'status': 'failed',
-                    'message': f'Failed to publish /goal_pose: {e}'}
+        if not self._nav_client.wait_for_server(timeout_sec=2.0):
+            return {
+                'goal_id': goal_id,
+                'status': 'failed',
+                'message': 'Nav2 action server /navigate_to_pose is not available',
+            }
 
-        return {'goal_id': goal_id, 'status': 'success',
-                'message': f'Goal sent to {target} (x={x:.2f}, y={y:.2f})'}
+        goal = NavigateToPose.Goal()
+        goal.pose.header.stamp = self.get_clock().now().to_msg()
+        goal.pose.header.frame_id = _MAP_FRAME
+        goal.pose.pose.position.x = x
+        goal.pose.pose.position.y = y
+        goal.pose.pose.position.z = 0.0
+        goal.pose.pose.orientation.x = 0.0
+        goal.pose.pose.orientation.y = 0.0
+        goal.pose.pose.orientation.z = 0.0
+        goal.pose.pose.orientation.w = 1.0
+
+        send_future = self._nav_client.send_goal_async(goal)
+        goal_handle, err = self._wait_future(send_future, _NAV_TIMEOUT)
+        if err is not None:
+            return {
+                'goal_id': goal_id,
+                'status': 'timeout',
+                'message': f'Navigate goal send timed out after {_NAV_TIMEOUT}s',
+            }
+
+        if not goal_handle.accepted:
+            return {
+                'goal_id': goal_id,
+                'status': 'failed',
+                'message': f'Navigate goal rejected by Nav2 for {target}',
+            }
+
+        result_future = goal_handle.get_result_async()
+        result_msg, err = self._wait_future(result_future, _NAV_TIMEOUT)
+        if err is not None:
+            goal_handle.cancel_goal_async()
+            return {
+                'goal_id': goal_id,
+                'status': 'timeout',
+                'message': f'Navigate result timed out after {_NAV_TIMEOUT}s',
+            }
+
+        status = result_msg.status
+        if status == GoalStatus.STATUS_SUCCEEDED:
+            return {
+                'goal_id': goal_id,
+                'status': 'success',
+                'message': f'Arrived at {target} (x={x:.2f}, y={y:.2f})',
+            }
+        if status == GoalStatus.STATUS_CANCELED:
+            return {
+                'goal_id': goal_id,
+                'status': 'failed',
+                'message': f'Navigation canceled before reaching {target}',
+            }
+        if status == GoalStatus.STATUS_ABORTED:
+            return {
+                'goal_id': goal_id,
+                'status': 'failed',
+                'message': f'Navigation aborted by Nav2 for {target}',
+            }
+        return {
+            'goal_id': goal_id,
+            'status': 'failed',
+            'message': f'Navigation ended with unexpected status={status}',
+        }
 
     # ------------------------------------------------------------------
     # Spin: P-controller on /cmd_vel using TF yaw feedback
@@ -401,6 +453,15 @@ class ZMQBridgeNode(Node):
     # ------------------------------------------------------------------
     # TF helpers (called from ZMQ thread — TF buffer is thread-safe)
     # ------------------------------------------------------------------
+    def _wait_future(self, future, timeout_s: float):
+        """Wait for a ROS future from ZMQ thread while rclpy spins elsewhere."""
+        deadline = time.time() + timeout_s
+        while rclpy.ok() and time.time() < deadline:
+            if future.done():
+                return future.result(), None
+            time.sleep(0.02)
+        return None, 'timeout'
+
     def _get_pose_full(self):
         """Returns (x, y, z, yaw) from map->base frame, or None if unavailable."""
         for frame in self._base_frame_candidates:
