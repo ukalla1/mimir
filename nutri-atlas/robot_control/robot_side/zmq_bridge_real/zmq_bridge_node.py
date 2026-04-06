@@ -52,7 +52,7 @@ import zmq
 import rclpy
 from rclpy.node import Node
 from rclpy.duration import Duration
-from geometry_msgs.msg import PoseStamped, TwistStamped
+from geometry_msgs.msg import PoseStamped, Twist
 from sensor_msgs.msg import PointCloud2
 from std_msgs.msg import String
 from tf2_ros import Buffer, TransformListener, LookupException, ConnectivityException, ExtrapolationException
@@ -98,7 +98,7 @@ class ZMQBridgeNode(Node):
 
         # --- ROS2 publishers ---
         self._goal_pose_pub = self.create_publisher(PoseStamped, '/goal_pose', 10)
-        self._cmd_vel_pub  = self.create_publisher(TwistStamped,  '/cmd_vel',  10)
+        self._cmd_vel_pub  = self.create_publisher(Twist, '/cmd_vel', 10)
 
         # --- LiDAR scan cache (written by ROS callback, read by ZMQ thread) ---
         self._latest_scan      = None
@@ -423,14 +423,12 @@ class ZMQBridgeNode(Node):
         return None
 
     # ------------------------------------------------------------------
-    # Publish TwistStamped to /cmd_vel
+    # Publish Twist to /cmd_vel
     # ------------------------------------------------------------------
     def _publish_cmd_vel(self, linear_x: float, angular_z: float):
-        msg = TwistStamped()
-        msg.header.stamp    = self.get_clock().now().to_msg()
-        msg.header.frame_id = self._active_base_frame
-        msg.twist.linear.x  = linear_x
-        msg.twist.angular.z = angular_z
+        msg = Twist()
+        msg.linear.x  = linear_x
+        msg.angular.z = angular_z
         self._cmd_vel_pub.publish(msg)
 
     def destroy_node(self):
