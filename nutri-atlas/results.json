@@ -3,419 +3,274 @@
     "query_id": "T1",
     "level": "easy",
     "query": "List all available landmarks.",
-    "total_time_s": 1.929421529872343,
+    "total_time_s": 2.4805589669849724,
     "llm_turns": [
       {
         "input_tokens": 37,
         "output_tokens": 16,
-        "inference_time_s": 0.5317015280015767,
+        "inference_time_s": 0.8966200121212751,
         "tool_calls": [
           {
             "tool_name": "list_landmarks",
             "args_tokens": 1,
-            "result_tokens": 162,
-            "execution_time_s": 3.6185840144753456e-05
+            "result_tokens": 145,
+            "execution_time_s": 2.866191789507866e-05
           }
         ]
       },
       {
-        "input_tokens": 215,
-        "output_tokens": 112,
-        "inference_time_s": 1.395386174088344,
+        "input_tokens": 198,
+        "output_tokens": 119,
+        "inference_time_s": 1.5811864279676229,
         "tool_calls": []
       }
     ],
-    "final_reply": "Here are all the available landmarks:\n\n1. **Bathroom** (2.86, -10.68)\n2. **Hallway** (2.4, -4.64)\n3. **Kitchen area** (-4.88, -3.46)\n4. **Bedroom** (-3.23, -8.92)\n5. **Living room** (6.53, -1.46)\n\nLet me know if you'd like to navigate to any of these locations!"
+    "final_reply": "Here are all the available landmarks I can navigate to:\n\n1. **Bathroom** (2.86, -10.68)\n2. **Hallway** (2.4, -4.64)\n3. **Kitchen** (-4.88, -3.46)\n4. **Bedroom** (-3.23, -8.92)\n5. **Living Room** (6.53, -1.46)\n\nLet me know if you'd like to navigate to any of these locations or need further assistance!",
+    "gpu_avg_w": 132.868,
+    "gpu_peak_w": 262.86,
+    "cpu_avg_pct": 37.42
   },
   {
     "query_id": "T2",
     "level": "easy",
     "query": "What can you see right now?",
-    "total_time_s": 26.492263366933912,
+    "total_time_s": 1.2898845369927585,
     "llm_turns": [
       {
         "input_tokens": 39,
         "output_tokens": 17,
-        "inference_time_s": 0.39868290699087083,
+        "inference_time_s": 0.42184522096067667,
         "tool_calls": [
           {
             "tool_name": "get_current_detected_objects",
             "args_tokens": 1,
-            "result_tokens": 58,
-            "execution_time_s": 10.01084361388348
+            "result_tokens": 121,
+            "execution_time_s": 4.112301394343376e-05
           }
         ]
       },
       {
-        "input_tokens": 114,
-        "output_tokens": 47,
-        "inference_time_s": 0.623894470045343,
-        "tool_calls": [
-          {
-            "tool_name": "get_current_detected_objects",
-            "args_tokens": 1,
-            "result_tokens": 53,
-            "execution_time_s": 10.010628667892888
-          }
-        ]
-      },
-      {
-        "input_tokens": 214,
-        "output_tokens": 89,
-        "inference_time_s": 1.085790951969102,
-        "tool_calls": [
-          {
-            "tool_name": "get_detected_objects",
-            "args_tokens": 1,
-            "result_tokens": 19,
-            "execution_time_s": 3.0033559929579496
-          }
-        ]
-      },
-      {
-        "input_tokens": 322,
-        "output_tokens": 113,
-        "inference_time_s": 1.355332620907575,
+        "input_tokens": 177,
+        "output_tokens": 65,
+        "inference_time_s": 0.8642540499567986,
         "tool_calls": []
       }
     ],
-    "final_reply": "Unfortunately, I'm encountering persistent timeout errors when trying to access the object detection systems. This could be due to:\n\n1. Network connectivity issues\n2. The object server being unavailable\n3. Camera system malfunctions\n\nSince I cannot currently see or detect any objects, landmarks, or provide real-time visual information, I recommend:\n\n- Checking your network connection\n- Verifying if other devices can access the robot's systems\n- Trying again in a moment when systems might be more responsive\n\nIs there anything else I can help you with regarding navigation or nutritional advice?"
+    "final_reply": "Right now, I can see a chair and a cup. The chair is located at coordinates (1.2, -0.5) with a confidence level of 0.91, and the cup is at (0.8, 0.3) with a confidence level of 0.83.",
+    "gpu_avg_w": 259.95666666666665,
+    "gpu_peak_w": 268.26,
+    "cpu_avg_pct": 46.53333333333334
   },
   {
     "query_id": "T3",
     "level": "easy",
     "query": "What objects have been detected so far?",
-    "total_time_s": 18.395816497970372,
+    "total_time_s": 1.8216475490480661,
     "llm_turns": [
       {
         "input_tokens": 40,
         "output_tokens": 16,
-        "inference_time_s": 0.39670033985748887,
+        "inference_time_s": 0.4209242360666394,
         "tool_calls": [
           {
             "tool_name": "get_detected_objects",
             "args_tokens": 1,
-            "result_tokens": 19,
-            "execution_time_s": 3.0032402388751507
+            "result_tokens": 120,
+            "execution_time_s": 3.197486512362957e-05
           }
         ]
       },
       {
-        "input_tokens": 75,
-        "output_tokens": 40,
-        "inference_time_s": 0.5224703380372375,
-        "tool_calls": [
-          {
-            "tool_name": "get_detected_objects",
-            "args_tokens": 1,
-            "result_tokens": 19,
-            "execution_time_s": 3.0032431799918413
-          }
-        ]
-      },
-      {
-        "input_tokens": 134,
-        "output_tokens": 60,
-        "inference_time_s": 0.7723785301204771,
-        "tool_calls": [
-          {
-            "tool_name": "get_current_detected_objects",
-            "args_tokens": 1,
-            "result_tokens": 54,
-            "execution_time_s": 10.010321441106498
-          }
-        ]
-      },
-      {
-        "input_tokens": 248,
-        "output_tokens": 52,
-        "inference_time_s": 0.684204138815403,
+        "input_tokens": 176,
+        "output_tokens": 108,
+        "inference_time_s": 1.399093555053696,
         "tool_calls": []
       }
     ],
-    "final_reply": "I'm encountering connectivity issues with both the persistent object map and the current camera view. It seems the robot's object detection systems are currently unavailable or timing out. \n\nIs there anything else I can assist you with, such as navigation to landmarks or meal recommendations?"
+    "final_reply": "The following objects have been detected so far:\n\n1. **Chair** (chair_1) at position (1.2, -0.5) with a confidence of 0.91.\n2. **Table** (table_1) at position (2.3, 1.1) with a confidence of 0.87.\n3. **Sofa** (sofa_1) at position (5.1, -2.3) with a confidence of 0.79.",
+    "gpu_avg_w": 256.51250000000005,
+    "gpu_peak_w": 262.88,
+    "cpu_avg_pct": 47.150000000000006
   },
   {
     "query_id": "T4",
     "level": "easy",
     "query": "Go to the kitchen.",
-    "total_time_s": 244.75669679115526,
+    "total_time_s": 0.8379422128200531,
     "llm_turns": [
       {
         "input_tokens": 37,
         "output_tokens": 24,
-        "inference_time_s": 0.47369214589707553,
+        "inference_time_s": 0.5033847270533442,
         "tool_calls": [
           {
             "tool_name": "navigate_to_landmark",
             "args_tokens": 9,
-            "result_tokens": 59,
-            "execution_time_s": 60.0612134821713
-          }
-        ]
-      },
-      {
-        "input_tokens": 120,
-        "output_tokens": 43,
-        "inference_time_s": 0.6073734969832003,
-        "tool_calls": [
-          {
-            "tool_name": "navigate_to_landmark",
-            "args_tokens": 9,
-            "result_tokens": 59,
-            "execution_time_s": 60.04941385705024
-          }
-        ]
-      },
-      {
-        "input_tokens": 222,
-        "output_tokens": 56,
-        "inference_time_s": 0.7737686820328236,
-        "tool_calls": [
-          {
-            "tool_name": "list_landmarks",
-            "args_tokens": 1,
-            "result_tokens": 162,
-            "execution_time_s": 3.1210947781801224e-05
-          }
-        ]
-      },
-      {
-        "input_tokens": 440,
-        "output_tokens": 64,
-        "inference_time_s": 0.8361375839449465,
-        "tool_calls": [
-          {
-            "tool_name": "navigate_to_landmark",
-            "args_tokens": 18,
-            "result_tokens": 58,
-            "execution_time_s": 60.060935272835195
-          }
-        ]
-      },
-      {
-        "input_tokens": 562,
-        "output_tokens": 46,
-        "inference_time_s": 0.6744775141123682,
-        "tool_calls": [
-          {
-            "tool_name": "spin_robot",
-            "args_tokens": 7,
-            "result_tokens": 57,
-            "execution_time_s": 60.06089089601301
-          }
-        ]
-      },
-      {
-        "input_tokens": 665,
-        "output_tokens": 91,
-        "inference_time_s": 1.1517942061182112,
-        "tool_calls": []
-      }
-    ],
-    "final_reply": "It appears the robot is not responding at all. I'm getting consistent timeouts for all navigation and control commands. This suggests a system-wide issue rather than a problem with specific commands.\n\nUnfortunately, I cannot navigate to the kitchen right now due to what appears to be a robot responsiveness issue. The robot isn't returning responses to any commands within the expected time frame.\n\nIs there anything else I can help you with regarding nutritional advice while this issue is being resolved?"
-  },
-  {
-    "query_id": "T5",
-    "level": "easy",
-    "query": "Spin 90 degrees to the right.",
-    "total_time_s": 61.40713296714239,
-    "llm_turns": [
-      {
-        "input_tokens": 41,
-        "output_tokens": 21,
-        "inference_time_s": 0.6162244868464768,
-        "tool_calls": [
-          {
-            "tool_name": "spin_robot",
-            "args_tokens": 8,
-            "result_tokens": 51,
-            "execution_time_s": 60.03136041597463
+            "result_tokens": 52,
+            "execution_time_s": 2.2842083126306534e-05
           }
         ]
       },
       {
         "input_tokens": 113,
-        "output_tokens": 60,
-        "inference_time_s": 0.7583137431647629,
+        "output_tokens": 20,
+        "inference_time_s": 0.3330273840110749,
         "tool_calls": []
       }
     ],
-    "final_reply": "I attempted to spin the robot 90 degrees to the right, but the operation timed out without a response from the robot. Please check if the robot is responsive or if there are any issues with its connection. Let me know if you'd like to try again or need assistance with something else!"
+    "final_reply": "I have arrived at the kitchen. How can I assist you with your nutritional needs or meal recommendations?",
+    "gpu_avg_w": 267.505,
+    "gpu_peak_w": 271.93,
+    "cpu_avg_pct": 43.75
+  },
+  {
+    "query_id": "T5",
+    "level": "easy",
+    "query": "Spin 90 degrees to the right.",
+    "total_time_s": 0.7978358860127628,
+    "llm_turns": [
+      {
+        "input_tokens": 41,
+        "output_tokens": 21,
+        "inference_time_s": 0.4849216260481626,
+        "tool_calls": [
+          {
+            "tool_name": "spin_robot",
+            "args_tokens": 8,
+            "result_tokens": 61,
+            "execution_time_s": 2.587190829217434e-05
+          }
+        ]
+      },
+      {
+        "input_tokens": 123,
+        "output_tokens": 18,
+        "inference_time_s": 0.3114168818574399,
+        "tool_calls": []
+      }
+    ],
+    "final_reply": "I have spun 90 degrees to the right. How can I assist you further?",
+    "gpu_avg_w": 249.755,
+    "gpu_peak_w": 251.87,
+    "cpu_avg_pct": 48.85
   },
   {
     "query_id": "T6",
     "level": "easy",
     "query": "I had an apple and milk for breakfast. What should I eat for lunch?",
-    "total_time_s": 16.707025245996192,
+    "total_time_s": 19.44989483500831,
     "llm_turns": [
       {
         "input_tokens": 48,
         "output_tokens": 47,
-        "inference_time_s": 0.7281180168502033,
+        "inference_time_s": 0.7826535380445421,
         "tool_calls": [
           {
             "tool_name": "get_meal_recommendation",
             "args_tokens": 31,
             "result_tokens": 680,
-            "execution_time_s": 11.79914533207193
+            "execution_time_s": 12.917950605973601
           }
         ]
       },
       {
         "input_tokens": 775,
-        "output_tokens": 341,
-        "inference_time_s": 4.175924067152664,
+        "output_tokens": 460,
+        "inference_time_s": 5.74494240898639,
         "tool_calls": []
       }
     ],
-    "final_reply": "Based on your nutritional needs, here is a recommended lunch option:\n\n### **The Suggestion: Braised Pork Spareribs with Sweet Potato Mash & Avocado**\n\nSince your breakfast (apple and milk) was low in fat, this meal is designed to provide the necessary **dietary fat (~45g)**, **protein (~30g)**, and **complex carbohydrates (~60g)** to reach your lunch targets.\n\n**Approximate Portions:**\n*   **Protein:** 150g (approx. 5-6 oz) cooked, braised pork spareribs (lean and fat included).\n*   **Carbs:** 1 medium-large baked sweet potato (approx. 200g).\n*   **Healthy Fat:** 1/2 medium avocado (approx. 75g) sliced on top.\n*   **Optional Fat Boost:** 1 tablespoon olive oil drizzled over the potatoes or used in cooking the ribs.\n\n**Why this works for you:**\n1.  **Fills the Fat Gap:** The pork and avocado provide the significant fat deficit from your morning meal.\n2.  **Balanced Protein:** The pork portion hits your 30g target perfectly.\n3.  **Sustained Energy:** The sweet potato provides stable energy without a sharp sugar spike.\n4.  **Practicality:** It is a satisfying meal that helps you hit your calorie goals comfortably.\n\n**Vegetarian Alternative:** If you prefer not to eat pork, you could swap it for 1 cup of cooked **Lima beans**, 2 large fried eggs, and a generous drizzle of olive oil to reach similar targets."
+    "final_reply": "Based on your nutritional gap analysis, your current intake is missing significant **dietary fat** and needs a boost in **protein** and **complex carbohydrates**.\n\nHere is a specific, practical lunch suggestion to address this:\n\n### **The Suggestion: Braised Pork Spareribs with Sweet Potato Mash & Avocado**\n\nThis meal directly addresses your deficits by combining a high-fat/high-protein protein source with a complex carb and an additional healthy fat source.\n\n**Approximate Portions:**\n*   **Protein:** 150g (approx. 5-6 oz) cooked, braised pork spareribs (lean and fat included).\n*   **Carbs:** 1 medium-large baked sweet potato (approx. 200g).\n*   **Healthy Fat:** 1/2 medium avocado (approx. 75g) sliced on top.\n*   **Optional Fat Boost:** 1 tablespoon olive oil drizzled over the potatoes or used in cooking the ribs.\n\n**Nutritional Breakdown (Estimated):**\n*   **Protein:** ~30g (from the pork)\n*   **Fat:** ~45g (approx. 30g from the pork fat/lean mix + 15g from the avocado + optional oil)\n*   **Carbs:** ~60g (from the sweet potato)\n*   **Calories:** ~650 kcal\n\n**Why this works for you:**\n1.  **Fills the Fat Gap:** Your previous meal (apple + milk) had almost no fat. The pork and avocado provide the necessary ~45g of fat for satiety and hormonal health.\n2.  **Balances Protein:** The 150g portion of pork provides the full 30g target.\n3.  **Sustained Energy:** The sweet potato provides the ~60g of carbohydrates needed for energy without spiking blood sugar as sharply as sugary alternatives.\n\n*Note: If you prefer a vegetarian option, you could swap the pork for 1 cup of cooked **Lima beans** combined with 2 large fried eggs and a generous serving of olive oil, though you would need to increase the portion size slightly to hit the exact calorie target.*",
+    "gpu_avg_w": 240.28675675675672,
+    "gpu_peak_w": 279.91,
+    "cpu_avg_pct": 47.80540540540541
   },
   {
     "query_id": "T7",
     "level": "medium",
     "query": "Go to the bedroom and tell me what you see.",
-    "total_time_s": 194.6846203811001,
+    "total_time_s": 1.2283644708804786,
     "llm_turns": [
       {
         "input_tokens": 43,
         "output_tokens": 24,
-        "inference_time_s": 0.6240700769703835,
+        "inference_time_s": 0.652960087871179,
         "tool_calls": [
           {
             "tool_name": "navigate_to_landmark",
             "args_tokens": 9,
-            "result_tokens": 58,
-            "execution_time_s": 60.06112928292714
+            "result_tokens": 49,
+            "execution_time_s": 2.8870999813079834e-05
           }
         ]
       },
       {
-        "input_tokens": 125,
-        "output_tokens": 55,
-        "inference_time_s": 0.7400120629463345,
-        "tool_calls": [
-          {
-            "tool_name": "navigate_to_landmark",
-            "args_tokens": 9,
-            "result_tokens": 57,
-            "execution_time_s": 60.04353781696409
-          }
-        ]
-      },
-      {
-        "input_tokens": 237,
-        "output_tokens": 58,
-        "inference_time_s": 0.7703129330184311,
-        "tool_calls": [
-          {
-            "tool_name": "list_landmarks",
-            "args_tokens": 1,
-            "result_tokens": 162,
-            "execution_time_s": 3.189593553543091e-05
-          }
-        ]
-      },
-      {
-        "input_tokens": 457,
-        "output_tokens": 53,
-        "inference_time_s": 0.7173699329141527,
-        "tool_calls": [
-          {
-            "tool_name": "navigate_to_landmark",
-            "args_tokens": 18,
-            "result_tokens": 58,
-            "execution_time_s": 60.02110501099378
-          }
-        ]
-      },
-      {
-        "input_tokens": 568,
-        "output_tokens": 58,
-        "inference_time_s": 0.7853174030315131,
+        "input_tokens": 116,
+        "output_tokens": 17,
+        "inference_time_s": 0.3066543620079756,
         "tool_calls": [
           {
             "tool_name": "get_current_detected_objects",
             "args_tokens": 1,
-            "result_tokens": 60,
-            "execution_time_s": 10.010281038004905
+            "result_tokens": 117,
+            "execution_time_s": 2.8510112315416336e-05
           }
         ]
       },
       {
-        "input_tokens": 686,
-        "output_tokens": 72,
-        "inference_time_s": 0.903918714961037,
+        "input_tokens": 250,
+        "output_tokens": 12,
+        "inference_time_s": 0.2660180600360036,
         "tool_calls": []
       }
     ],
-    "final_reply": "I'm encountering persistent timeouts with all the robot functions. This suggests there might be a broader issue with the system's responsiveness. Unfortunately, I'm unable to successfully navigate to the bedroom or provide information about what I see at this moment due to these technical difficulties.\n\nWould you like me to try again later, or is there something else I can assist you with?"
+    "final_reply": "In the bedroom, I see a chair and a cup.",
+    "gpu_avg_w": 246.57666666666668,
+    "gpu_peak_w": 275.34,
+    "cpu_avg_pct": 51.36666666666667
   },
   {
     "query_id": "T8",
     "level": "medium",
     "query": "Do a full 360-degree scan and list every object you find.",
-    "total_time_s": 137.53726319409907,
+    "total_time_s": 2.7145591392181814,
     "llm_turns": [
       {
         "input_tokens": 48,
-        "output_tokens": 78,
-        "inference_time_s": 1.1271509230136871,
+        "output_tokens": 67,
+        "inference_time_s": 1.023215824039653,
         "tool_calls": [
           {
             "tool_name": "spin_robot",
-            "args_tokens": 8,
-            "result_tokens": 60,
-            "execution_time_s": 60.06098117190413
+            "args_tokens": 9,
+            "result_tokens": 61,
+            "execution_time_s": 2.5256071239709854e-05
           }
         ]
       },
       {
-        "input_tokens": 186,
-        "output_tokens": 47,
-        "inference_time_s": 0.669739959994331,
-        "tool_calls": [
-          {
-            "tool_name": "spin_robot",
-            "args_tokens": 8,
-            "result_tokens": 56,
-            "execution_time_s": 60.060765822883695
-          }
-        ]
-      },
-      {
-        "input_tokens": 289,
-        "output_tokens": 63,
-        "inference_time_s": 0.844416068866849,
-        "tool_calls": [
-          {
-            "tool_name": "get_current_detected_objects",
-            "args_tokens": 1,
-            "result_tokens": 58,
-            "execution_time_s": 10.010628969874233
-          }
-        ]
-      },
-      {
-        "input_tokens": 410,
-        "output_tokens": 57,
-        "inference_time_s": 0.7622964279726148,
+        "input_tokens": 176,
+        "output_tokens": 16,
+        "inference_time_s": 0.33029063791036606,
         "tool_calls": [
           {
             "tool_name": "get_detected_objects",
             "args_tokens": 1,
-            "result_tokens": 19,
-            "execution_time_s": 3.0024677379988134
+            "result_tokens": 120,
+            "execution_time_s": 3.6043114960193634e-05
           }
         ]
       },
       {
-        "input_tokens": 486,
-        "output_tokens": 82,
-        "inference_time_s": 0.9929164841305465,
+        "input_tokens": 312,
+        "output_tokens": 105,
+        "inference_time_s": 1.357782717095688,
         "tool_calls": []
       }
     ],
-    "final_reply": "It appears there are connectivity issues with the robot's systems, preventing me from retrieving object data or controlling the robot's movements. The timeouts and errors suggest that the robot or its associated services are currently unavailable.\n\nI'm unable to complete the 360-degree scan and list objects at this time due to system unavailability. If the robot becomes operational again, I'd be happy to assist with the scan."
+    "final_reply": "After completing a 360-degree rotation, here are the objects I found in the environment:\n\n1.  **Chair**: Located at position (1.2, -0.5) with a confidence of 91%.\n2.  **Table**: Located at position (2.3, 1.1) with a confidence of 87%.\n3.  **Sofa**: Located at position (5.1, -2.3) with a confidence of 79%.",
+    "gpu_avg_w": 253.705,
+    "gpu_peak_w": 276.63,
+    "cpu_avg_pct": 46.76666666666666
   }
 ]
