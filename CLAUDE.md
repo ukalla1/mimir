@@ -18,7 +18,7 @@ nutri_graph  →  nutri_rag  →  nutri-atlas  →  robot_side
 - **nutri_graph/**: DuckDB knowledge base (USDA + FoodKG) + heterogeneous GATv2 training
 - **nutri_rag/**: Four RAG retrieval versions (V0–V3), NutriBench/PFoodReq benchmarks, nutrition assistant
 - **nutri-atlas/**: Qwen Agent with tool-calling for robot navigation + nutrition advice
-- **robot_side/**: ZMQ REP servers that run on the robot's onboard PC
+- **robot_side/**: ZMQ REP servers that run on the robot's onboard PC (`zmq_bridge_node.py` is the main one; `zmq_bridge/` contains a reference implementation for the CMU ARPL autonomy stack — do not use directly)
 - **PFoodReq/**: External benchmark data (WSDM 2021), gitignored
 - **foodkg.github.io/**: External FoodKG construction project, gitignored
 
@@ -82,6 +82,28 @@ cd nutri_rag && python scripts/demo_assistant.py          # nutrition assistant 
 cd nutri-atlas/robot_control && python robot_assistant.py  # robot + nutrition
 ```
 
+**Robot-side (run on the robot's onboard PC):**
+
+```bash
+# Must source ROS2 first
+source /opt/ros/humble/setup.bash
+source ~/test_ws/install/setup.bash
+
+# Terminal 1 — ZMQ navigation bridge (port 5555)
+python robot_side/zmq_bridge_node.py
+
+# Terminal 2 — persistent object map server (port 5556)
+python robot_side/zmq_object_server.py
+```
+
+Set the robot IP on the operator PC before running `robot_assistant.py`:
+
+```bash
+export ROBOT_IP=192.168.0.114   # robot's IP on shared WiFi (192.168.0.x subnet)
+export ROBOT_PORT=5555
+cd nutri-atlas/robot_control && python robot_assistant.py
+```
+
 ## Architecture Details
 
 ### Cross-Subsystem Data Flow
@@ -109,6 +131,17 @@ Two ZMQ REQ/REP channels between operator PC (nutri-atlas) and robot onboard PC 
 
 Robot IP configured via env vars: `ROBOT_IP`, `OBJECT_SERVER_IP`.
 
+**`robot_side/zmq_bridge_node.py` ROS2 topics:**
+- Publishes `geometry_msgs/PointStamped` → `/way_point` (navigate, fire-and-forget)
+- Publishes `geometry_msgs/TwistStamped` → `/cmd_vel` (spin and move, P-controller)
+- Subscribes `sensor_msgs/PointCloud2` ← `/sensor_scan` (cached for get_scan)
+- Subscribes `std_msgs/String` ← `/detected_objects` (cached for get_current_objects)
+- Reads TF `map → vehicle` for spin/move pose feedback (requires localization stack)
+
+Note: `robot_side/zmq_bridge/` is a reference implementation targeting the CMU ARPL
+autonomy_stack_go2 (publishes to `/goal_point`, requires far_planner + full TF tree).
+Use `robot_side/zmq_bridge_node.py` for direct `/way_point` navigation.
+
 ### Key Config Constants (nutri_rag/config.py)
 
 | Constant | Value | Notes |
@@ -129,6 +162,8 @@ Robot IP configured via env vars: `ROBOT_IP`, `OBJECT_SERVER_IP`.
 - `nutri_graph/nutri_graph/kb/builder.py` — DuckDB KB construction
 - `nutri_graph/nutri_graph/models/gat_model.py` — GATv2 (4 node types, dual decoders)
 - `nutri-atlas/robot_control/robot_assistant.py` — Qwen Agent chat loop with tool dispatch
+- `robot_side/zmq_bridge_node.py` — ZMQ REP server: navigate(/way_point) + spin/move(TF+cmd_vel) + scan/objects(topic cache)
+- `robot_side/zmq_object_server.py` — ZMQ REP server: serves persistent detected_objects.json on port 5556
 
 ## Git
 
