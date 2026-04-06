@@ -1,0 +1,20 @@
+landmarks:
+  bathroom:
+    x: 1.17
+    y: 2.98
+    description: "Start point"
+
+  Hallway:
+    x: 2.73
+    y: 7.94
+    description: "Free Space"
+
+  kitchen:
+    x: 0.94
+    y: 1.83
+    description: "Boxun Desk"
+
+  bedroom:
+    x: -1.84
+    y: 2.50
+    description: "Uttej Desk"
