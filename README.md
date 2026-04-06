@@ -402,7 +402,7 @@ cd ~/work/atlas/mimir/nutri_rag
 bash scripts/start_server.sh
 
 # Terminal 2 — robot assistant
-export ROBOT_IP=<robot_ip>            # e.g. 192.168.0.114
+export ROBOT_IP=<robot_ip>            # e.g. 192.168.0.114 for real robot; 127.0.0.1 for simulation
 export OBJECT_SERVER_IP=<robot_ip>    # same IP
 cd ~/work/atlas/mimir/nutri-atlas/robot_control
 python robot_assistant.py

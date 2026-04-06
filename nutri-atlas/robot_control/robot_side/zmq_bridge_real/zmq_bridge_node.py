@@ -13,7 +13,7 @@ Message types handled:
 
 1. Navigation goal  — has 'x' and 'y', no 'command_type'
    {"goal_id": "...", "landmark": "kitchen", "x": 1.5, "y": 2.3}
-   → Publish geometry_msgs/PointStamped to /way_point (fire-and-forget)
+   → Publish geometry_msgs/PoseStamped to /goal_pose (Nav2-compatible)
 
 2. Spin command     — command_type == 'spin'
    {"goal_id": "...", "command_type": "spin", "angle_deg": 120}
@@ -52,14 +52,13 @@ import zmq
 import rclpy
 from rclpy.node import Node
 from rclpy.duration import Duration
-from geometry_msgs.msg import PointStamped, TwistStamped
+from geometry_msgs.msg import PoseStamped, TwistStamped
 from sensor_msgs.msg import PointCloud2
 from std_msgs.msg import String
 from tf2_ros import Buffer, TransformListener, LookupException, ConnectivityException, ExtrapolationException
 
 
-_MAP_FRAME     = 'map'
-_VEHICLE_FRAME = 'vehicle'
+_MAP_FRAME = 'map'
 
 # P-controller limits
 _MAX_VYAW = 0.8   # rad/s
@@ -89,13 +88,16 @@ class ZMQBridgeNode(Node):
         self._move_kp        = move_kp
         self._spin_threshold = math.radians(spin_threshold_deg)
         self._move_threshold = move_threshold_m
+        # Prefer standard Nav2 base frame; keep fallbacks for compatibility.
+        self._base_frame_candidates = ['base_link', 'base', 'vehicle']
+        self._active_base_frame = self._base_frame_candidates[0]
 
         # --- TF2: kept fresh by rclpy.spin in main thread ---
         self._tf_buffer   = Buffer()
         self._tf_listener = TransformListener(self._tf_buffer, self)
 
         # --- ROS2 publishers ---
-        self._waypoint_pub = self.create_publisher(PointStamped, '/way_point', 10)
+        self._goal_pose_pub = self.create_publisher(PoseStamped, '/goal_pose', 10)
         self._cmd_vel_pub  = self.create_publisher(TwistStamped,  '/cmd_vel',  10)
 
         # --- LiDAR scan cache (written by ROS callback, read by ZMQ thread) ---
@@ -182,23 +184,27 @@ class ZMQBridgeNode(Node):
             }
 
     # ------------------------------------------------------------------
-    # Navigate: publish PointStamped to /way_point (fire-and-forget)
-    # No TF required — the nav stack handles arrival.
+    # Navigate: publish PoseStamped to /goal_pose (Nav2).
+    # No TF required — Nav2 handles arrival.
     # ------------------------------------------------------------------
     def _handle_navigate(self, goal_id: str, x: float, y: float, landmark: str) -> dict:
         target = landmark if landmark else f'({x:.2f}, {y:.2f})'
         try:
-            msg = PointStamped()
+            msg = PoseStamped()
             msg.header.stamp    = self.get_clock().now().to_msg()
             msg.header.frame_id = _MAP_FRAME
-            msg.point.x = x
-            msg.point.y = y
-            msg.point.z = 0.0
-            self._waypoint_pub.publish(msg)
-            self.get_logger().info(f'Published /way_point x={x:.3f} y={y:.3f}')
+            msg.pose.position.x = x
+            msg.pose.position.y = y
+            msg.pose.position.z = 0.0
+            msg.pose.orientation.x = 0.0
+            msg.pose.orientation.y = 0.0
+            msg.pose.orientation.z = 0.0
+            msg.pose.orientation.w = 1.0
+            self._goal_pose_pub.publish(msg)
+            self.get_logger().info(f'Published /goal_pose x={x:.3f} y={y:.3f}')
         except Exception as e:
             return {'goal_id': goal_id, 'status': 'failed',
-                    'message': f'Failed to publish /way_point: {e}'}
+                    'message': f'Failed to publish /goal_pose: {e}'}
 
         return {'goal_id': goal_id, 'status': 'success',
                 'message': f'Goal sent to {target} (x={x:.2f}, y={y:.2f})'}
@@ -396,22 +402,25 @@ class ZMQBridgeNode(Node):
     # TF helpers (called from ZMQ thread — TF buffer is thread-safe)
     # ------------------------------------------------------------------
     def _get_pose_full(self):
-        """Returns (x, y, z, yaw) from map→vehicle TF, or None if unavailable."""
-        try:
-            tf = self._tf_buffer.lookup_transform(
-                _MAP_FRAME, _VEHICLE_FRAME,
-                rclpy.time.Time(),
-                timeout=Duration(seconds=0.1),
-            )
-            t = tf.transform.translation
-            q = tf.transform.rotation
-            yaw = math.atan2(
-                2.0 * (q.w * q.z + q.x * q.y),
-                1.0 - 2.0 * (q.y * q.y + q.z * q.z),
-            )
-            return t.x, t.y, t.z, yaw
-        except (LookupException, ConnectivityException, ExtrapolationException):
-            return None
+        """Returns (x, y, z, yaw) from map->base frame, or None if unavailable."""
+        for frame in self._base_frame_candidates:
+            try:
+                tf = self._tf_buffer.lookup_transform(
+                    _MAP_FRAME, frame,
+                    rclpy.time.Time(),
+                    timeout=Duration(seconds=0.1),
+                )
+                self._active_base_frame = frame
+                t = tf.transform.translation
+                q = tf.transform.rotation
+                yaw = math.atan2(
+                    2.0 * (q.w * q.z + q.x * q.y),
+                    1.0 - 2.0 * (q.y * q.y + q.z * q.z),
+                )
+                return t.x, t.y, t.z, yaw
+            except (LookupException, ConnectivityException, ExtrapolationException):
+                continue
+        return None
 
     # ------------------------------------------------------------------
     # Publish TwistStamped to /cmd_vel
@@ -419,7 +428,7 @@ class ZMQBridgeNode(Node):
     def _publish_cmd_vel(self, linear_x: float, angular_z: float):
         msg = TwistStamped()
         msg.header.stamp    = self.get_clock().now().to_msg()
-        msg.header.frame_id = _VEHICLE_FRAME
+        msg.header.frame_id = self._active_base_frame
         msg.twist.linear.x  = linear_x
         msg.twist.angular.z = angular_z
         self._cmd_vel_pub.publish(msg)
