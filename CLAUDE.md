@@ -18,7 +18,10 @@ nutri_graph  →  nutri_rag  →  nutri-atlas  →  robot_side
 - **nutri_graph/**: DuckDB knowledge base (USDA + FoodKG) + heterogeneous GATv2 training
 - **nutri_rag/**: Four RAG retrieval versions (V0–V3), NutriBench/PFoodReq benchmarks, nutrition assistant
 - **nutri-atlas/**: Qwen Agent with tool-calling for robot navigation + nutrition advice
-- **robot_side/**: ZMQ REP servers that run on the robot's onboard PC (`zmq_bridge_node.py` is the main one; `zmq_bridge/` contains a reference implementation for the CMU ARPL autonomy stack — do not use directly)
+- **nutri-atlas/robot_control/robot_side/**: ZMQ REP servers that run on the robot's onboard PC. Two sub-directories:
+  - `zmq_bridge_real/` — **production**: `zmq_bridge_node_working_v2.py` (Nav2 action client) + `zmq_object_server.py`
+  - `zmq_bridge_simulation/` — simulation variants (reference only)
+  - `coordinates_record.py` — TF-based tool for recording landmark (x, y) coordinates interactively
 - **PFoodReq/**: External benchmark data (WSDM 2021), gitignored
 - **foodkg.github.io/**: External FoodKG construction project, gitignored
 
@@ -90,10 +93,18 @@ source /opt/ros/humble/setup.bash
 source ~/test_ws/install/setup.bash
 
 # Terminal 1 — ZMQ navigation bridge (port 5555)
-python robot_side/zmq_bridge_node.py
+cd nutri-atlas/robot_control/robot_side/zmq_bridge_real
+python zmq_bridge_node_working_v2.py          # default port 5555
+# Optional flags: --port 5555 --spin-kp 1.5 --move-kp 0.8
+#                 --spin-threshold-deg 3.0 --move-threshold-m 0.05
+# Also reads env var: ZMQ_PORT
 
 # Terminal 2 — persistent object map server (port 5556)
-python robot_side/zmq_object_server.py
+python zmq_object_server.py                   # default port 5556
+
+# (Optional) Record landmark coordinates mannually for initailization
+cd nutri-atlas/robot_control/robot_side
+python coordinates_record.py --output landmarks_record.json
 ```
 
 Set the robot IP on the operator PC before running `robot_assistant.py`:
@@ -125,22 +136,31 @@ Config C: tag lookup → deterministic constraint filter (ingredient inclusion/e
 
 ### Robot Communication
 
-Two ZMQ REQ/REP channels between operator PC (nutri-atlas) and robot onboard PC (robot_side):
-- Port 5555: navigation goals, spin, move, current objects, lidar (`zmq_bridge_node.py`)
+Two ZMQ REQ/REP channels between operator PC (nutri-atlas) and robot onboard PC:
+- Port 5555: navigation goals, spin, move, current objects, lidar (`zmq_bridge_node_working_v2.py`)
 - Port 5556: persistent detected-objects map (`zmq_object_server.py`)
 
 Robot IP configured via env vars: `ROBOT_IP`, `OBJECT_SERVER_IP`.
 
-**`robot_side/zmq_bridge_node.py` ROS2 topics:**
-- Publishes `geometry_msgs/PointStamped` → `/way_point` (navigate, fire-and-forget)
-- Publishes `geometry_msgs/TwistStamped` → `/cmd_vel` (spin and move, P-controller)
+**`zmq_bridge_node_working_v2.py` ROS2 interface:**
+- Sends `nav2_msgs/action/NavigateToPose` → `/navigate_to_pose` (navigate, waits for result)
+- Publishes `geometry_msgs/Twist` → `/cmd_vel` (spin and move, P-controller)
 - Subscribes `sensor_msgs/PointCloud2` ← `/sensor_scan` (cached for get_scan)
 - Subscribes `std_msgs/String` ← `/detected_objects` (cached for get_current_objects)
-- Reads TF `map → vehicle` for spin/move pose feedback (requires localization stack)
+- Reads TF `map → base_link` (falls back to `base`, `vehicle`) for spin/move pose feedback
+- Requires Nav2 stack running (`/navigate_to_pose` action server)
 
-Note: `robot_side/zmq_bridge/` is a reference implementation targeting the CMU ARPL
-autonomy_stack_go2 (publishes to `/goal_point`, requires far_planner + full TF tree).
-Use `robot_side/zmq_bridge_node.py` for direct `/way_point` navigation.
+**Message types dispatched by the bridge:**
+| Field | Command | Action |
+|-------|---------|--------|
+| `'x'` and `'y'` present | navigate | Nav2 action goal to `(x, y)` in map frame |
+| `command_type: 'spin'` | spin `angle_deg` | P-controller on `/cmd_vel` |
+| `command_type: 'move'` | move `distance_m` | P-controller on `/cmd_vel` |
+| `command_type: 'get_current_objects'` | live objects | Latest `/detected_objects` |
+| `command_type: 'get_scan'` | lidar | 8-sector distances from `/sensor_scan` |
+
+Note: `zmq_bridge_simulation/` is a reference for simulation only.
+Use `zmq_bridge_real/zmq_bridge_node_working_v2.py` for real robot deployment.
 
 ### Key Config Constants (nutri_rag/config.py)
 
@@ -162,8 +182,10 @@ Use `robot_side/zmq_bridge_node.py` for direct `/way_point` navigation.
 - `nutri_graph/nutri_graph/kb/builder.py` — DuckDB KB construction
 - `nutri_graph/nutri_graph/models/gat_model.py` — GATv2 (4 node types, dual decoders)
 - `nutri-atlas/robot_control/robot_assistant.py` — Qwen Agent chat loop with tool dispatch
-- `robot_side/zmq_bridge_node.py` — ZMQ REP server: navigate(/way_point) + spin/move(TF+cmd_vel) + scan/objects(topic cache)
-- `robot_side/zmq_object_server.py` — ZMQ REP server: serves persistent detected_objects.json on port 5556
+- `nutri-atlas/robot_control/robot_side/zmq_bridge_real/zmq_bridge_node_working_v2.py` — ZMQ REP server (robot): Nav2 action navigate + spin/move(TF+cmd_vel) + scan/objects(topic cache)
+- `nutri-atlas/robot_control/robot_side/zmq_bridge_real/zmq_object_server.py` — ZMQ REP server (robot): serves persistent detected-objects map on port 5556
+- `nutri-atlas/robot_control/robot_side/coordinates_record.py` — TF-based tool to record landmark (x, y) coordinates interactively
+- `nutri-atlas/scripts/benchmark_cost.py` — agent cost benchmark (time, tokens, power); use `--mock` to bypass ZMQ
 
 ## Git
 
