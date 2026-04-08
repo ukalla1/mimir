@@ -42,7 +42,8 @@ from image_reciver import ImageReceiver, ImageFrame
 # ---------------------------------------------------------------------------
 # Config
 # ---------------------------------------------------------------------------
-_DEFAULT_MODEL    = 'yolo11n.onnx'
+_WEIGHTS_DIR   = os.path.join(os.path.dirname(__file__), '..', '..', '..', 'weights')
+_DEFAULT_MODEL = os.path.join(_WEIGHTS_DIR, 'yolo11n.onnx')
 _DEFAULT_CONF     = 0.35
 _DEFAULT_IOU      = 0.45
 _INFER_SIZE       = 640            # YOLO input resolution
@@ -234,7 +235,7 @@ class YOLODetector:
 # ---------------------------------------------------------------------------
 def main():
     parser = argparse.ArgumentParser(description='YOLO ONNX + RealSense ZMQ detector')
-    parser.add_argument('--robot-ip',   default=os.environ.get('ROBOT_IP', '127.0.0.1'))
+    parser.add_argument('--robot-ip',   default=os.environ.get('ROBOT_IP', '192.168.0.114'))
     parser.add_argument('--color-port', type=int, default=5557)
     parser.add_argument('--depth-port', type=int, default=5558)
     parser.add_argument('--model',      default=_DEFAULT_MODEL,
