@@ -36,7 +36,7 @@ import cv2
 import numpy as np
 import onnxruntime as ort
 
-from image_reciver import ImageReceiver, ImageFrame
+from image_reciver_test import ImageReceiver, ImageFrame
 
 
 # ---------------------------------------------------------------------------
@@ -76,13 +76,20 @@ class Detection:
     y1: int
     x2: int
     y2: int
-    cx: int                 # bounding box centre x
-    cy: int                 # bounding box centre y
+    cx: int                 # bounding box centre x (colour frame pixels)
+    cy: int                 # bounding box centre y (colour frame pixels)
     depth_mm: float         # median depth at centre (0 = invalid)
+    cam_x_m: float = 0.0   # 3-D position relative to camera: right (+X)
+    cam_y_m: float = 0.0   #                                    down  (+Y)
+    cam_z_m: float = 0.0   #                                    forward (+Z)
 
     @property
     def depth_m(self) -> float:
         return self.depth_mm / 1000.0
+
+    @property
+    def has_3d(self) -> bool:
+        return self.depth_mm > 0
 
 
 # ---------------------------------------------------------------------------
@@ -109,7 +116,7 @@ class _FrameCache:
 
 
 # ---------------------------------------------------------------------------
-# Depth sampling
+# Depth sampling + 3-D back-projection
 # ---------------------------------------------------------------------------
 def _sample_depth(depth_frame: ImageFrame, cx: int, cy: int) -> float:
     """
@@ -130,6 +137,38 @@ def _sample_depth(depth_frame: ImageFrame, cx: int, cy: int) -> float:
     return float(np.median(valid))
 
 
+def _backproject(depth_frame: ImageFrame, dcx: int, dcy: int, depth_mm: float):
+    """
+    Back-project a depth pixel to 3-D camera coordinates (metres).
+
+    Uses the K matrix from the depth frame's camera_info:
+        K = [fx,  0, ppx,
+              0, fy, ppy,
+              0,  0,   1]   (row-major, 9 floats)
+
+    Returns (x_m, y_m, z_m) where:
+        z_m = depth (forward)
+        x_m = horizontal offset from optical axis (right = +)
+        y_m = vertical   offset from optical axis (down  = +)
+
+    Returns (0, 0, 0) if intrinsics are unavailable.
+    """
+    if depth_frame.camera_info is None or len(depth_frame.camera_info.k) < 9:
+        return 0.0, 0.0, 0.0
+
+    k   = depth_frame.camera_info.k
+    fx  = k[0];  fy  = k[4]
+    ppx = k[2];  ppy = k[5]
+
+    if fx == 0 or fy == 0:
+        return 0.0, 0.0, 0.0
+
+    z_m = depth_mm / 1000.0
+    x_m = (dcx - ppx) * z_m / fx
+    y_m = (dcy - ppy) * z_m / fy
+    return x_m, y_m, z_m
+
+
 # ---------------------------------------------------------------------------
 # Annotate frame
 # ---------------------------------------------------------------------------
@@ -139,8 +178,9 @@ def _annotate(bgr: np.ndarray, detections: list) -> np.ndarray:
         color = (0, 200, 0) if det.depth_mm > 0 else (0, 100, 200)
         cv2.rectangle(out, (det.x1, det.y1), (det.x2, det.y2), color, 2)
 
-        if det.depth_mm > 0:
-            label = f'{det.label} {det.confidence:.2f} | {det.depth_m:.2f}m'
+        if det.has_3d:
+            label = (f'{det.label} {det.confidence:.2f} | '
+                     f'z={det.cam_z_m:.2f}m x={det.cam_x_m:+.2f}m y={det.cam_y_m:+.2f}m')
         else:
             label = f'{det.label} {det.confidence:.2f} | depth?'
 
@@ -258,6 +298,18 @@ def main():
     if args.save_dir:
         os.makedirs(args.save_dir, exist_ok=True)
 
+    print('=' * 60)
+    print(f'  Robot IP     : {args.robot_ip}')
+    print(f'  Color port   : {args.color_port}')
+    print(f'  Depth port   : {args.depth_port}')
+    print(f'  Model        : {args.model}')
+    print(f'  Conf thresh  : {args.conf}')
+    print(f'  IoU thresh   : {args.iou}')
+    print(f'  Depth patch  : {_DEPTH_PATCH_HALF*2+1}×{_DEPTH_PATCH_HALF*2+1} px median')
+    print(f'  Display      : {not args.no_display}')
+    print(f'  Save dir     : {args.save_dir or "—"}')
+    print('=' * 60)
+
     detector = YOLODetector(args.model, conf=args.conf, iou=args.iou)
     cache    = _FrameCache()
 
@@ -294,6 +346,7 @@ def main():
     print('Waiting for first frames... (press q to quit)')
 
     saved = 0; fps_t = time.time(); fps_count = 0
+    _intrinsics_printed = False
 
     while True:
         color_frame, depth_frame = cache.get()
@@ -301,18 +354,40 @@ def main():
             time.sleep(0.01)
             continue
 
+        # Print camera info once on first frame
+        if not _intrinsics_printed and depth_frame is not None:
+            ci = depth_frame.camera_info
+            print(f'  Color frame  : {color_frame.width}×{color_frame.height}'
+                  f'  enc={color_frame.encoding}')
+            print(f'  Depth frame  : {depth_frame.width}×{depth_frame.height}'
+                  f'  enc={depth_frame.encoding}')
+            if ci and len(ci.k) == 9:
+                print(f'  Intrinsics   : fx={ci.k[0]:.2f}  fy={ci.k[4]:.2f}'
+                      f'  ppx={ci.k[2]:.2f}  ppy={ci.k[5]:.2f}')
+            else:
+                print('  Intrinsics   : not available (no cameraInfo in header)')
+            print('=' * 60)
+            _intrinsics_printed = True
+
         bgr = (cv2.cvtColor(color_frame.data, cv2.COLOR_RGB2BGR)
                if color_frame.encoding == 'rgb8' else color_frame.data)
 
         detections = detector.detect(bgr)
 
-        # Fill depth for each detection
-        for det in detections:
-            if depth_frame is not None:
-                dh, dw = depth_frame.data.shape[:2]
-                dcx = min(max(det.cx, 0), dw - 1)
-                dcy = min(max(det.cy, 0), dh - 1)
+        # Fill depth + 3-D position for each detection
+        # Scale colour-frame pixel coords to depth-frame coords (may differ in resolution)
+        if depth_frame is not None:
+            dh, dw = depth_frame.data.shape[:2]
+            ch, cw = color_frame.data.shape[:2]
+            sx = dw / cw
+            sy = dh / ch
+            for det in detections:
+                dcx = int(min(max(det.cx * sx, 0), dw - 1))
+                dcy = int(min(max(det.cy * sy, 0), dh - 1))
                 det.depth_mm = _sample_depth(depth_frame, dcx, dcy)
+                if det.depth_mm > 0:
+                    det.cam_x_m, det.cam_y_m, det.cam_z_m = _backproject(
+                        depth_frame, dcx, dcy, det.depth_mm)
 
         # Console output once per second
         fps_count += 1
@@ -322,9 +397,13 @@ def main():
             fps_t = time.time(); fps_count = 0
             print(f'[fps={fps:.1f}]  {len(detections)} detection(s)')
             for det in detections:
-                depth_str = f'{det.depth_m:.2f}m' if det.depth_mm > 0 else 'no depth'
+                if det.has_3d:
+                    pos_str = (f'depth={det.cam_z_m:.2f}m  '
+                               f'x={det.cam_x_m:+.2f}m  y={det.cam_y_m:+.2f}m')
+                else:
+                    pos_str = 'no depth'
                 print(f'  {det.label:20s}  conf={det.confidence:.2f}'
-                      f'  centre=({det.cx},{det.cy})  depth={depth_str}')
+                      f'  centre=({det.cx},{det.cy})  {pos_str}')
 
         annotated = _annotate(bgr, detections)
 
