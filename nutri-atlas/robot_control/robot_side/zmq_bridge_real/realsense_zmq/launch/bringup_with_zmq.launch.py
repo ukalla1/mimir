@@ -38,9 +38,27 @@ def generate_launch_description():
         output='screen',
     )
 
+    # ========= Static TF: base → camera_frame =========
+    # Translation/rotation measured from robot body (base) to RealSense optical frame.
+    # Values extracted from the original C++ static broadcaster:
+    #   translation: (0.22162912, -0.36896348, 0.35538645)  metres
+    #   rotation:    x=-0.34940  y=0.57682  z=0.61817  w=0.40383  (quaternion)
+    cameraStaticTf = Node(
+        package='tf2_ros',
+        executable='static_transform_publisher',
+        name='base_to_camera_frame',
+        arguments=[
+            '0.22162912', '-0.36896348', '0.35538645',  # x y z
+            '-0.34940', '0.57682', '0.61817', '0.40383',  # qx qy qz qw
+            'base', 'camera_frame',                        # parent → child
+        ],
+        output='screen',
+    )
+
     # ========= Launch Description =========
     return LaunchDescription([
         useRealsenseArg,
         realsenseLaunch,
         realsenseZmqNode,
+        cameraStaticTf,
     ])
