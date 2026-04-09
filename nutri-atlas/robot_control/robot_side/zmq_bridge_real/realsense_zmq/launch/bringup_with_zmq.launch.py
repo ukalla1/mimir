@@ -47,8 +47,8 @@ def generate_launch_description():
         executable='static_transform_publisher',
         name='base_to_camera_frame',
         arguments=[
-            '0', '0', '0',        # x y z (metres)
-            '0', '0', '0', '1',   # qx qy qz qw (identity rotation)
+            '0', '0', '0',                    # x y z (metres)
+            '-0.5', '0.5', '-0.5', '0.5',     # qx qy qz qw  (camera Z→base X, RPY=-π/2,0,-π/2)
             'base_link', 'camera_link',
         ],
         output='screen',

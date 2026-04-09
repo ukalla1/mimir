@@ -8,7 +8,7 @@ The robot transforms them to map frame and broadcasts TF frames:
     detected_{label}_{i}  as children of  map
 
 Usage:
-    python detector_node.py --robot-ip 192.168.0.114
+    python detector_node_real_world.py --robot-ip 192.168.0.114
 
 Verify on robot:
     ros2 tf echo map detected_bottle_0
@@ -17,7 +17,6 @@ Verify on robot:
 
 import argparse
 import os
-import sys
 import threading
 import time
 from dataclasses import dataclass
@@ -26,18 +25,15 @@ import cv2
 import numpy as np
 import onnxruntime as ort
 
-from image_reciver_test import ImageReceiver, ImageFrame
+from image_receiver import ImageReceiver, ImageFrame
 
-# Reuse ZMQNavClient from the operator-side tools
-_tools_path = os.path.join(os.path.dirname(__file__), '..', '..', '..', 'robot_control', 'tools')
-sys.path.insert(0, os.path.abspath(_tools_path))
-from zmq_client import ZMQNavClient  # noqa: E402
+from zmq_client import ZMQNavClient
 
 
 # ---------------------------------------------------------------------------
 # Config
 # ---------------------------------------------------------------------------
-_WEIGHTS_DIR      = os.path.join(os.path.dirname(__file__), '..', '..', '..', 'weights')
+_WEIGHTS_DIR      = os.path.join(os.path.dirname(__file__), '..', '..', 'weights')
 _DEFAULT_MODEL    = os.path.join(_WEIGHTS_DIR, 'yolo11n.onnx')
 _DEFAULT_CONF     = 0.35
 _DEFAULT_IOU      = 0.45
@@ -323,7 +319,7 @@ def main():
             n_valid = sum(1 for d in dets if d.has_3d)
             cv2.putText(annotated, f'{len(dets)} det  {n_valid} with depth | Enter=send  q=quit',
                         (8, 22), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
-            cv2.imshow('detector_node', annotated)
+            cv2.imshow('detector_node_real_world', annotated)
             if cv2.waitKey(1) & 0xFF == ord('q'):
                 break
 
