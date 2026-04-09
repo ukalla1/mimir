@@ -31,6 +31,12 @@ Message types handled:
    {"goal_id": "...", "command_type": "get_scan", "min_dist": 1.0}
    → Return 8-sector obstacle distances from /sensor_scan
 
+6. Update objects  — command_type == 'update_objects'
+   {"goal_id": "...", "command_type": "update_objects",
+    "objects": [{"label": "bottle", "cam_x": 0.1, "cam_y": 0.0, "cam_z": 0.8}, ...]}
+   → Look up TF map → camera_link, transform each point to map frame
+   → Broadcast detected_{label}_{i} as static TF frames under map
+
 Usage:
     python zmq_bridge_node.py [--port 5555]
                               [--spin-kp 1.5] [--move-kp 0.8]
@@ -54,11 +60,12 @@ from action_msgs.msg import GoalStatus
 from rclpy.node import Node
 from rclpy.duration import Duration
 from rclpy.action import ActionClient
-from geometry_msgs.msg import Twist
+from geometry_msgs.msg import Twist, TransformStamped
 from sensor_msgs.msg import PointCloud2
 from std_msgs.msg import String
 from nav2_msgs.action import NavigateToPose
-from tf2_ros import Buffer, TransformListener, LookupException, ConnectivityException, ExtrapolationException
+from tf2_ros import (Buffer, TransformListener, StaticTransformBroadcaster,
+                     LookupException, ConnectivityException, ExtrapolationException)
 
 
 _MAP_FRAME = 'map'
@@ -82,6 +89,15 @@ _SCAN_MIN_RANGE = 0.15   # metres — ignore points closer than this (robot body
 _SCAN_MAX_RANGE = 10.0   # metres — clip at this distance
 
 
+def _quat_to_rotation_matrix(qx: float, qy: float, qz: float, qw: float) -> list:
+    """Return a 3×3 rotation matrix (list of rows) from a unit quaternion."""
+    return [
+        [1 - 2*(qy*qy + qz*qz),     2*(qx*qy - qz*qw),     2*(qx*qz + qy*qw)],
+        [    2*(qx*qy + qz*qw), 1 - 2*(qx*qx + qz*qz),     2*(qy*qz - qx*qw)],
+        [    2*(qx*qz - qy*qw),     2*(qy*qz + qx*qw), 1 - 2*(qx*qx + qy*qy)],
+    ]
+
+
 class ZMQBridgeNode(Node):
     def __init__(self, zmq_port: int,
                  spin_kp: float, move_kp: float,
@@ -99,6 +115,9 @@ class ZMQBridgeNode(Node):
         # --- TF2: kept fresh by rclpy.spin in main thread ---
         self._tf_buffer   = Buffer()
         self._tf_listener = TransformListener(self._tf_buffer, self)
+
+        # --- Static TF broadcaster for detected objects ---
+        self._obj_tf_broadcaster = StaticTransformBroadcaster(self)
 
         # --- ROS2 publishers ---
         self._cmd_vel_pub  = self.create_publisher(Twist, '/cmd_vel', 10)
@@ -172,6 +191,11 @@ class ZMQBridgeNode(Node):
             min_dist = float(msg.get('min_dist', 1.0))
             self.get_logger().info(f'[{goal_id[:8]}] get_scan (min_dist={min_dist}m)')
             return self._handle_get_scan(goal_id, min_dist)
+
+        elif command_type == 'update_objects':
+            objects = msg.get('objects', [])
+            self.get_logger().info(f'[{goal_id[:8]}] update_objects ({len(objects)} objects)')
+            return self._handle_update_objects(goal_id, objects)
 
         elif 'x' in msg and 'y' in msg:
             gx, gy = float(msg['x']), float(msg['y'])
@@ -397,6 +421,76 @@ class ZMQBridgeNode(Node):
             'min_distance':    round(min_d, 3),
             'min_direction':   min_dir,
             'safe_directions': safe,
+        }
+
+    # ------------------------------------------------------------------
+    # update_objects: transform camera-frame detections to map frame and
+    # broadcast each as a static TF frame (detected_{label}_{i} under map).
+    # ------------------------------------------------------------------
+    def _handle_update_objects(self, goal_id: str, objects: list) -> dict:
+        # Look up map → camera_link (full chain via base_link)
+        try:
+            tf = self._tf_buffer.lookup_transform(
+                _MAP_FRAME, 'camera_link',
+                rclpy.time.Time(),
+                timeout=Duration(seconds=0.5),
+            )
+        except (LookupException, ConnectivityException, ExtrapolationException) as e:
+            return {
+                'goal_id': goal_id,
+                'status':  'failed',
+                'message': f'TF map→camera_link not available: {e}',
+            }
+
+        t = tf.transform.translation
+        q = tf.transform.rotation
+        R = _quat_to_rotation_matrix(q.x, q.y, q.z, q.w)
+
+        stamps         = []
+        published      = []
+        label_counts   = {}
+
+        for obj in objects:
+            label  = str(obj.get('label', 'object')).replace(' ', '_')
+            cam_x  = float(obj.get('cam_x', 0.0))
+            cam_y  = float(obj.get('cam_y', 0.0))
+            cam_z  = float(obj.get('cam_z', 0.0))
+
+            # Rotate + translate into map frame
+            mx = R[0][0]*cam_x + R[0][1]*cam_y + R[0][2]*cam_z + t.x
+            my = R[1][0]*cam_x + R[1][1]*cam_y + R[1][2]*cam_z + t.y
+
+            idx = label_counts.get(label, 0)
+            label_counts[label] = idx + 1
+            frame_name = f'detected_{label}_{idx}'
+
+            ts = TransformStamped()
+            ts.header.stamp    = self.get_clock().now().to_msg()
+            ts.header.frame_id = _MAP_FRAME
+            ts.child_frame_id  = frame_name
+            ts.transform.translation.x = mx
+            ts.transform.translation.y = my
+            ts.transform.translation.z = 0.0   # ground plane
+            ts.transform.rotation.w    = 1.0   # identity rotation
+
+            stamps.append(ts)
+            published.append({
+                'frame': frame_name,
+                'map_x': round(mx, 3),
+                'map_y': round(my, 3),
+                'label': label,
+            })
+            self.get_logger().info(
+                f'  {frame_name} → map ({mx:.3f}, {my:.3f})'
+            )
+
+        self._obj_tf_broadcaster.sendTransform(stamps)
+
+        return {
+            'goal_id': goal_id,
+            'status':  'success',
+            'frames':  published,
+            'message': f'Published {len(stamps)} TF frame(s)',
         }
 
     # ------------------------------------------------------------------
