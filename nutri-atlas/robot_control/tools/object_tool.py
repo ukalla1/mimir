@@ -21,6 +21,10 @@ _ROBOT_IP       = os.environ.get('ROBOT_IP',      '10.203.168.250')
 _ROBOT_PORT     = int(os.environ.get('ROBOT_PORT', 5555))
 _NAV_TIMEOUT_MS = int(os.environ.get('NAV_TIMEOUT_MS', 10000))
 
+# 'sim' (default): query zmq_object_server on port 5556
+# 'real'         : query zmq_bridge on port 5555 via get_detected_objects command
+_DETECTION_MODE = os.environ.get('DETECTION_MODE', 'sim')
+
 # Client for the full persistent map (port 5556)
 class _ObjectClient:
     def __init__(self, ip: str, port: int, timeout_ms: int):
@@ -59,8 +63,11 @@ class GetDetectedObjects(BaseTool):
     parameters = []
 
     def call(self, params: str, **kwargs) -> str:
-        print("[get_detected_objects] called")
-        result = _client.get_objects()
+        print('[get_detected_objects] called')
+        if _DETECTION_MODE == 'real':
+            result = _bridge_client.send_command('get_detected_objects')
+        else:
+            result = _client.get_objects()
         return json.dumps(result, ensure_ascii=False)
 
 

@@ -36,6 +36,11 @@ Message types handled:
     "objects": [{"label": "bottle", "cam_x": 0.1, "cam_y": 0.0, "cam_z": 0.8}, ...]}
    → Look up TF map → camera_link, transform each point to map frame
    → Broadcast detected_{label}_{i} as static TF frames under map
+   → Store results in memory for get_detected_objects queries
+
+7. Get detected objects — command_type == 'get_detected_objects'
+   {"goal_id": "...", "command_type": "get_detected_objects"}
+   → Return the last snapshot saved by update_objects as {frame: {px, py, label}}
 
 Usage:
     python zmq_bridge_node.py [--port 5555]
@@ -132,6 +137,11 @@ class ZMQBridgeNode(Node):
         # data format published on /detected_objects: "key:px,py\nkey:px,py"
         self._latest_detections      = None
         self._latest_detections_lock = threading.Lock()
+
+        # --- Real-world detected objects store (written by update_objects handler) ---
+        # format: {frame_name: {'px': float, 'py': float, 'label': str}}
+        self._stored_objects      = {}
+        self._stored_objects_lock = threading.Lock()
         self.create_subscription(String, '/detected_objects', self._detections_callback, 10)
 
         # --- ZMQ REP socket ---
@@ -196,6 +206,10 @@ class ZMQBridgeNode(Node):
             objects = msg.get('objects', [])
             self.get_logger().info(f'[{goal_id[:8]}] update_objects ({len(objects)} objects)')
             return self._handle_update_objects(goal_id, objects)
+
+        elif command_type == 'get_detected_objects':
+            self.get_logger().info(f'[{goal_id[:8]}] get_detected_objects')
+            return self._handle_get_detected_objects(goal_id)
 
         elif 'x' in msg and 'y' in msg:
             gx, gy = float(msg['x']), float(msg['y'])
@@ -379,6 +393,12 @@ class ZMQBridgeNode(Node):
             snap = self._latest_detections
 
         if snap is None:
+            # In real-world mode /detected_objects is never published — fall back to
+            # the last snapshot stored by update_objects (from detector_node_real_world).
+            with self._stored_objects_lock:
+                stored = dict(self._stored_objects)
+            if stored:
+                return {'goal_id': goal_id, 'status': 'ok', 'objects': stored}
             return {'goal_id': goal_id, 'status': 'ok', 'objects': {},
                     'message': 'No detections received yet on /detected_objects'}
 
@@ -486,12 +506,28 @@ class ZMQBridgeNode(Node):
 
         self._obj_tf_broadcaster.sendTransform(stamps)
 
+        # Save to in-memory store so get_detected_objects can serve it
+        new_store = {
+            entry['frame']: {'px': entry['map_x'], 'py': entry['map_y'], 'label': entry['label']}
+            for entry in published
+        }
+        with self._stored_objects_lock:
+            self._stored_objects = new_store
+
         return {
             'goal_id': goal_id,
             'status':  'success',
             'frames':  published,
             'message': f'Published {len(stamps)} TF frame(s)',
         }
+
+    # ------------------------------------------------------------------
+    # get_detected_objects: return last update_objects snapshot
+    # ------------------------------------------------------------------
+    def _handle_get_detected_objects(self, goal_id: str) -> dict:
+        with self._stored_objects_lock:
+            objects = dict(self._stored_objects)
+        return {'goal_id': goal_id, 'status': 'ok', 'objects': objects}
 
     # ------------------------------------------------------------------
     # ROS topic callbacks (called from rclpy.spin thread)
