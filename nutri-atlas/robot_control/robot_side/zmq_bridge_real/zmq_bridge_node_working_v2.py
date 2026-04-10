@@ -79,6 +79,7 @@ from tf2_ros import (Buffer, TransformListener, StaticTransformBroadcaster,
 
 _MAP_FRAME = 'map'
 _DETECTED_OBJECTS_FILE = os.path.expanduser('~/detected_objects.json')
+_SPATIAL_THRESHOLD = 0.5   # metres — objects closer than this with same label are duplicates
 
 
 def _load_detected_objects(path: str) -> dict:
@@ -491,7 +492,11 @@ class ZMQBridgeNode(Node):
 
         stamps         = []
         published      = []
+        skipped        = []
         label_counts   = {}
+
+        # Load existing stored objects for spatial dedup
+        existing = _load_detected_objects(_DETECTED_OBJECTS_FILE)
 
         for obj in objects:
             label  = str(obj.get('label', 'object')).replace(' ', '_')
@@ -503,7 +508,24 @@ class ZMQBridgeNode(Node):
             mx = R[0][0]*cam_x + R[0][1]*cam_y + R[0][2]*cam_z + t.x
             my = R[1][0]*cam_x + R[1][1]*cam_y + R[1][2]*cam_z + t.y
 
+            # Spatial dedup: skip if same-label entry exists within threshold
+            too_close = False
+            for entry in existing.values():
+                if entry.get('label') == label:
+                    dx = entry['px'] - mx
+                    dy = entry['py'] - my
+                    if math.hypot(dx, dy) < _SPATIAL_THRESHOLD:
+                        too_close = True
+                        break
+            if too_close:
+                skipped.append(label)
+                continue
+
             idx = label_counts.get(label, 0)
+            label_counts[label] = idx + 1
+            # Find next available frame index not already in existing
+            while f'detected_{label}_{idx}' in existing:
+                idx += 1
             label_counts[label] = idx + 1
             frame_name = f'detected_{label}_{idx}'
 
@@ -527,7 +549,13 @@ class ZMQBridgeNode(Node):
                 f'  {frame_name} → map ({mx:.3f}, {my:.3f})'
             )
 
-        self._obj_tf_broadcaster.sendTransform(stamps)
+        if skipped:
+            self.get_logger().info(
+                f'  skipped (spatial dedup): {", ".join(skipped)}'
+            )
+
+        if stamps:
+            self._obj_tf_broadcaster.sendTransform(stamps)
 
         # Save to in-memory store (current-frame snapshot for get_current_objects)
         new_store = {
@@ -538,15 +566,16 @@ class ZMQBridgeNode(Node):
             self._stored_objects = new_store
 
         # Merge into persistent file (accumulates across sessions)
-        existing = _load_detected_objects(_DETECTED_OBJECTS_FILE)
-        existing.update(new_store)
-        _save_detected_objects(_DETECTED_OBJECTS_FILE, existing)
+        if new_store:
+            existing.update(new_store)
+            _save_detected_objects(_DETECTED_OBJECTS_FILE, existing)
 
         return {
             'goal_id': goal_id,
             'status':  'success',
             'frames':  published,
-            'message': f'Published {len(stamps)} TF frame(s)',
+            'skipped': skipped,
+            'message': f'Published {len(stamps)} TF frame(s), skipped {len(skipped)} duplicate(s)',
         }
 
     # ------------------------------------------------------------------

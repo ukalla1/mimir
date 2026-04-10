@@ -1,24 +1,28 @@
 """
-Interactive detector node — runs YOLO on RealSense streams and sends detections
-to the robot on demand (press Enter).
+Automatic detector node — runs YOLO on RealSense streams and sends stable
+detections to the robot without manual input.
 
-On Enter, the current detections (with valid 3D positions in camera_link frame)
-are sent to zmq_bridge_node_working_v2.py via the 'update_objects' command.
-The robot transforms them to map frame and broadcasts TF frames:
-    detected_{label}_{i}  as children of  map
+Approach D gating:
+  1. Stability gate  : detection must appear in N consecutive frames (default 8)
+  2. Spatial dedup   : bridge skips objects within 0.5 m of an existing same-label entry
+
+On startup, fetches the current detected_objects.json from the robot so the
+spatial dedup starts with an up-to-date picture.
 
 Usage:
-    python detector_node_real_world.py --robot-ip 192.168.0.114
+    python detector_node_real_world_auto.py --robot-ip 192.168.0.114
 
-Verify on robot:
-    ros2 tf echo map detected_bottle_0
-    ros2 run tf2_tools view_frames
+    # Tune gating:
+    python detector_node_real_world_auto.py --robot-ip 192.168.0.114 --stable-frames 12
+
+Press 'q' to quit.
 """
 
 import argparse
 import os
 import threading
 import time
+from collections import defaultdict
 from dataclasses import dataclass
 
 import cv2
@@ -26,19 +30,18 @@ import numpy as np
 import onnxruntime as ort
 
 from image_receiver import ImageReceiver, ImageFrame
-
 from zmq_client import ZMQNavClient
 
 
 # ---------------------------------------------------------------------------
 # Config
 # ---------------------------------------------------------------------------
-_WEIGHTS_DIR      = os.path.join(os.path.dirname(__file__), '..', '..', 'weights')
-_DEFAULT_MODEL    = os.path.join(_WEIGHTS_DIR, 'yolo11n.onnx')
-_DEFAULT_CONF     = 0.35
-_DEFAULT_IOU      = 0.45
-_INFER_SIZE       = 640
-_DEPTH_PATCH_HALF = 3
+_WEIGHTS_DIR       = os.path.join(os.path.dirname(__file__), '..', '..', 'weights')
+_DEFAULT_MODEL     = os.path.join(_WEIGHTS_DIR, 'yolo11n.onnx')
+_DEFAULT_CONF      = 0.35
+_DEFAULT_IOU       = 0.45
+_DEFAULT_STABLE_N  = 8      # consecutive frames required before sending
+_DEPTH_PATCH_HALF  = 3
 
 COCO_NAMES = [
     'person','bicycle','car','motorcycle','airplane','bus','train','truck','boat',
@@ -64,10 +67,10 @@ class Detection:
     confidence: float
     x1: int; y1: int; x2: int; y2: int
     cx: int; cy: int
-    depth_mm: float  = 0.0
-    cam_x_m:  float  = 0.0
-    cam_y_m:  float  = 0.0
-    cam_z_m:  float  = 0.0
+    depth_mm: float = 0.0
+    cam_x_m:  float = 0.0
+    cam_y_m:  float = 0.0
+    cam_z_m:  float = 0.0
 
     @property
     def has_3d(self) -> bool:
@@ -75,7 +78,86 @@ class Detection:
 
 
 # ---------------------------------------------------------------------------
-# YOLO ONNX runner (same as detector_real_image.py)
+# Stability tracker
+# ---------------------------------------------------------------------------
+@dataclass
+class _LabelState:
+    streak:     int   = 0       # consecutive frames seen
+    sent:       bool  = False   # already sent this session
+    cam_x_sum:  float = 0.0
+    cam_y_sum:  float = 0.0
+    cam_z_sum:  float = 0.0
+
+
+class StabilityTracker:
+    """
+    Tracks per-label consecutive-frame counts.
+    A label is 'stable' when it has been seen for `n_frames` consecutive frames
+    without interruption AND has not already been sent this session.
+
+    Filters:
+      - min_conf  : per-frame confidence must exceed this to count toward streak
+      - targets   : if non-empty, only labels in this set are tracked
+
+    On each frame call `update(detections)`:
+      - qualifying detections: increment streak, accumulate averaged 3D position
+      - absent/non-qualifying: reset streak (and sent flag if they disappeared)
+
+    Call `pop_ready()` to get labels that just crossed the threshold.
+    """
+    def __init__(self, n_frames: int, min_conf: float = 0.5, targets: set = None):
+        self._n        = n_frames
+        self._min_conf = min_conf
+        self._targets  = targets or set()   # empty = accept all labels
+        self._state: dict[str, _LabelState] = defaultdict(_LabelState)
+
+    def _qualifies(self, det) -> bool:
+        if not det.has_3d:
+            return False
+        if self._targets and det.label not in self._targets:
+            return False
+        if det.confidence < self._min_conf:
+            return False
+        return True
+
+    def update(self, detections: list) -> None:
+        seen = {d.label for d in detections if self._qualifies(d)}
+        for det in detections:
+            if not self._qualifies(det):
+                continue
+            s = self._state[det.label]
+            s.streak    += 1
+            s.cam_x_sum += det.cam_x_m
+            s.cam_y_sum += det.cam_y_m
+            s.cam_z_sum += det.cam_z_m
+
+        # Reset labels that disappeared or no longer qualify this frame
+        for label, s in self._state.items():
+            if label not in seen:
+                s.streak    = 0
+                s.sent      = False
+                s.cam_x_sum = 0.0
+                s.cam_y_sum = 0.0
+                s.cam_z_sum = 0.0
+
+    def pop_ready(self) -> list[dict]:
+        """Return list of {label, cam_x, cam_y, cam_z} for newly stable detections."""
+        ready = []
+        for label, s in self._state.items():
+            if s.streak >= self._n and not s.sent:
+                n = s.streak
+                ready.append({
+                    'label': label,
+                    'cam_x': s.cam_x_sum / n,
+                    'cam_y': s.cam_y_sum / n,
+                    'cam_z': s.cam_z_sum / n,
+                })
+                s.sent = True   # suppress until it disappears and reappears
+        return ready
+
+
+# ---------------------------------------------------------------------------
+# YOLO ONNX runner
 # ---------------------------------------------------------------------------
 class YOLODetector:
     def __init__(self, model_path: str, conf: float, iou: float):
@@ -134,7 +216,7 @@ class YOLODetector:
 
 
 # ---------------------------------------------------------------------------
-# Frame cache + helpers (same as detector_real_image.py)
+# Frame cache + depth helpers
 # ---------------------------------------------------------------------------
 class _FrameCache:
     def __init__(self):
@@ -173,54 +255,50 @@ def _backproject(depth_frame: ImageFrame, dcx: int, dcy: int, depth_mm: float):
     return (dcx - ppx) * z_m / fx, (dcy - ppy) * z_m / fy, z_m
 
 
-def _annotate(bgr: np.ndarray, detections: list) -> np.ndarray:
+def _annotate(bgr: np.ndarray, detections: list, stable_labels: set) -> np.ndarray:
     out = bgr.copy()
     for det in detections:
-        color = (0, 200, 0) if det.has_3d else (0, 120, 220)
+        if not det.has_3d:
+            color = (0, 120, 220)   # blue — no depth
+        elif det.label in stable_labels:
+            color = (0, 200, 0)     # green — stable / sent
+        else:
+            color = (0, 200, 200)   # yellow — accumulating
         cv2.rectangle(out, (det.x1, det.y1), (det.x2, det.y2), color, 2)
         if det.has_3d:
-            label = (f'{det.label} {det.confidence:.2f} | '
-                     f'z={det.cam_z_m:.2f}m x={det.cam_x_m:+.2f}m y={det.cam_y_m:+.2f}m')
+            label_str = (f'{det.label} {det.confidence:.2f} | '
+                         f'z={det.cam_z_m:.2f}m x={det.cam_x_m:+.2f}m y={det.cam_y_m:+.2f}m')
         else:
-            label = f'{det.label} {det.confidence:.2f} | depth?'
-        (tw, th), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)
+            label_str = f'{det.label} {det.confidence:.2f} | depth?'
+        (tw, th), _ = cv2.getTextSize(label_str, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)
         ty = max(det.y1 - 6, th + 4)
         cv2.rectangle(out, (det.x1, ty - th - 4), (det.x1 + tw + 4, ty), color, -1)
-        cv2.putText(out, label, (det.x1 + 2, ty - 2),
+        cv2.putText(out, label_str, (det.x1 + 2, ty - 2),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 1, cv2.LINE_AA)
         cv2.drawMarker(out, (det.cx, det.cy), (255, 255, 255), cv2.MARKER_CROSS, 10, 1)
     return out
 
 
 # ---------------------------------------------------------------------------
-# Input thread: blocks on Enter, signals main loop
-# ---------------------------------------------------------------------------
-def _input_worker(send_event: threading.Event, stop_event: threading.Event):
-    print('Press Enter to publish current detections as TF frames. Type "q" + Enter to quit.')
-    while not stop_event.is_set():
-        try:
-            line = input()
-        except EOFError:
-            break
-        if line.strip().lower() == 'q':
-            stop_event.set()
-            break
-        send_event.set()
-
-
-# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 def main():
-    parser = argparse.ArgumentParser(description='Detector node — send detections to robot as TF frames')
-    parser.add_argument('--robot-ip',   default=os.environ.get('ROBOT_IP', '127.0.0.1'))
-    parser.add_argument('--robot-port', type=int, default=int(os.environ.get('ROBOT_PORT', 5555)))
-    parser.add_argument('--color-port', type=int, default=5557)
-    parser.add_argument('--depth-port', type=int, default=5558)
-    parser.add_argument('--model',      default=_DEFAULT_MODEL)
-    parser.add_argument('--conf',       type=float, default=_DEFAULT_CONF)
-    parser.add_argument('--iou',        type=float, default=_DEFAULT_IOU)
-    parser.add_argument('--no-display', action='store_true')
+    parser = argparse.ArgumentParser(description='Auto detector — sends stable detections to robot')
+    parser.add_argument('--robot-ip',      default=os.environ.get('ROBOT_IP', '127.0.0.1'))
+    parser.add_argument('--robot-port',    type=int, default=int(os.environ.get('ROBOT_PORT', 5555)))
+    parser.add_argument('--color-port',    type=int, default=5557)
+    parser.add_argument('--depth-port',    type=int, default=5558)
+    parser.add_argument('--model',         default=_DEFAULT_MODEL)
+    parser.add_argument('--conf',          type=float, default=_DEFAULT_CONF)
+    parser.add_argument('--iou',           type=float, default=_DEFAULT_IOU)
+    parser.add_argument('--stable-frames', type=int,   default=_DEFAULT_STABLE_N,
+                        help='Consecutive frames required before sending a detection (default 8)')
+    parser.add_argument('--stable-conf',  type=float, default=0.5,
+                        help='Min confidence per frame to count toward stability streak (default 0.5)')
+    parser.add_argument('--targets',      nargs='*',  default=[], metavar='LABEL',
+                        help='Labels to track as landmarks (e.g. --targets person chair). '
+                             'Empty = track all detected objects.')
+    parser.add_argument('--no-display',    action='store_true')
     args = parser.parse_args()
 
     if not os.path.exists(args.model):
@@ -234,11 +312,28 @@ def main():
     print(f'  Depth port   : {args.depth_port}')
     print(f'  Model        : {args.model}')
     print(f'  Conf / IoU   : {args.conf} / {args.iou}')
+    print(f'  Stable frames: {args.stable_frames}')
+    print(f'  Stable conf  : {args.stable_conf}')
+    print(f'  Targets      : {", ".join(sorted(args.targets)) if args.targets else "all"}')
     print('=' * 60)
 
     detector   = YOLODetector(args.model, conf=args.conf, iou=args.iou)
     zmq_client = ZMQNavClient(robot_ip=args.robot_ip, port=args.robot_port, timeout_ms=5000)
     cache      = _FrameCache()
+    tracker    = StabilityTracker(
+        n_frames=args.stable_frames,
+        min_conf=args.stable_conf,
+        targets=set(args.targets),
+    )
+
+    # Fetch existing stored objects from robot at startup (for display awareness)
+    print('[init] Fetching existing detected objects from robot...')
+    init_reply = zmq_client.send_command('get_detected_objects')
+    known_labels: set = {v.get('label', '') for v in init_reply.get('objects', {}).values()}
+    if known_labels:
+        print(f'[init] Already stored: {", ".join(sorted(known_labels))}')
+    else:
+        print('[init] No existing objects stored.')
 
     # Background image workers
     def _color_worker():
@@ -264,18 +359,11 @@ def main():
     for fn in (_color_worker, _depth_worker):
         threading.Thread(target=fn, daemon=True).start()
 
-    # Input thread
-    send_event = threading.Event()
-    stop_event = threading.Event()
-    threading.Thread(target=_input_worker, args=(send_event, stop_event),
-                     daemon=True).start()
-
-    print('Waiting for first frames...')
+    print('Waiting for first frames... (press q to quit)')
     _intrinsics_printed = False
-    detections_lock = threading.Lock()
-    latest_detections: list = []
+    stable_sent: set = set()   # labels confirmed sent this session (for display)
 
-    while not stop_event.is_set():
+    while True:
         color_frame, depth_frame = cache.get()
         if color_frame is None:
             time.sleep(0.01)
@@ -297,7 +385,7 @@ def main():
 
         dets = detector.detect(bgr)
 
-        # Fill depth + 3D
+        # Fill depth + 3D positions
         if depth_frame is not None:
             dh, dw = depth_frame.data.shape[:2]
             ch, cw = color_frame.data.shape[:2]
@@ -310,46 +398,36 @@ def main():
                     det.cam_x_m, det.cam_y_m, det.cam_z_m = _backproject(
                         depth_frame, dcx, dcy, det.depth_mm)
 
-        with detections_lock:
-            latest_detections = dets
+        # Update stability tracker
+        tracker.update(dets)
+        ready = tracker.pop_ready()
 
-        # Display
-        if not args.no_display:
-            annotated = _annotate(bgr, dets)
-            n_valid = sum(1 for d in dets if d.has_3d)
-            cv2.putText(annotated, f'{len(dets)} det  {n_valid} with depth | Enter=send  q=quit',
-                        (8, 22), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
-            cv2.imshow('detector_node_real_world', annotated)
-            if cv2.waitKey(1) & 0xFF == ord('q'):
-                break
-
-        # Send on Enter
-        if send_event.is_set():
-            send_event.clear()
-            with detections_lock:
-                to_send = [d for d in latest_detections if d.has_3d]
-
-            if not to_send:
-                print('[send] No detections with valid depth — nothing sent.')
-                continue
-
-            objects = [{'label': d.label, 'cam_x': d.cam_x_m,
-                        'cam_y': d.cam_y_m, 'cam_z': d.cam_z_m}
-                       for d in to_send]
-
-            print(f'[send] Sending {len(objects)} detection(s) to robot...')
-            reply = zmq_client.send_command('update_objects', objects=objects)
-
+        # Send stable detections to robot
+        if ready:
+            print(f'[auto] Sending {len(ready)} stable detection(s): '
+                  f'{", ".join(o["label"] for o in ready)}')
+            reply = zmq_client.send_command('update_objects', objects=ready)
             if reply.get('status') == 'success':
                 for f in reply.get('frames', []):
                     print(f'  → {f["frame"]:30s} map ({f["map_x"]:+.3f}, {f["map_y"]:+.3f})')
+                    stable_sent.add(f['label'])
                 skipped = reply.get('skipped', [])
                 if skipped:
                     print(f'  ↷ skipped (already stored nearby): {", ".join(skipped)}')
-                if not reply.get('frames') and not skipped:
-                    print('  (nothing new to send)')
+                    stable_sent.update(skipped)
             else:
                 print(f'  [error] {reply.get("message")}')
+
+        # Display
+        if not args.no_display:
+            annotated = _annotate(bgr, dets, stable_sent)
+            n_valid = sum(1 for d in dets if d.has_3d)
+            cv2.putText(annotated,
+                        f'{len(dets)} det  {n_valid} with depth | auto (stable={args.stable_frames}f)  q=quit',
+                        (8, 22), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+            cv2.imshow('detector_node_real_world_auto', annotated)
+            if cv2.waitKey(1) & 0xFF == ord('q'):
+                break
 
     if not args.no_display:
         cv2.destroyAllWindows()
