@@ -92,17 +92,20 @@ cd nutri-atlas/robot_control && python robot_assistant.py  # robot + nutrition
 source /opt/ros/humble/setup.bash
 source ~/test_ws/install/setup.bash
 
-# Terminal 1 — ZMQ navigation bridge (port 5555)
+# Terminal 1 — RealSense camera + ZMQ image bridge + static TF
+ros2 launch realsense_zmq bringup_with_zmq.launch.py
+
+# Terminal 2 — ZMQ navigation bridge (port 5555)
 cd nutri-atlas/robot_control/robot_side/zmq_bridge_real
 python zmq_bridge_node_working_v2.py          # default port 5555
 # Optional flags: --port 5555 --spin-kp 1.5 --move-kp 0.8
 #                 --spin-threshold-deg 3.0 --move-threshold-m 0.05
 # Also reads env var: ZMQ_PORT
 
-# Terminal 2 — persistent object map server (port 5556)
-python zmq_object_server.py                   # default port 5556
+# Terminal 3 — persistent object map server (port 5556, simulation only)
+# python zmq_object_server.py                 # not needed in real-world mode
 
-# (Optional) Record landmark coordinates mannually for initailization
+# (Optional) Record landmark coordinates manually for initialization
 cd nutri-atlas/robot_control/robot_side
 python coordinates_record.py --output landmarks_record.json
 ```
@@ -112,7 +115,12 @@ Set the robot IP on the operator PC before running `robot_assistant.py`:
 ```bash
 export ROBOT_IP=192.168.0.114   # robot's IP on shared WiFi (192.168.0.x subnet)
 export ROBOT_PORT=5555
+export DETECTION_MODE=real      # omit (or set to 'sim') for simulation
 cd nutri-atlas/robot_control && python robot_assistant.py
+
+# In a second terminal — real-world YOLO detector (press Enter to push detections to robot)
+cd nutri-atlas/robot_control/tools
+python detector_node_real_world.py --robot-ip 192.168.0.114
 ```
 
 ## Architecture Details
@@ -146,8 +154,9 @@ Robot IP configured via env vars: `ROBOT_IP`, `OBJECT_SERVER_IP`.
 - Sends `nav2_msgs/action/NavigateToPose` → `/navigate_to_pose` (navigate, waits for result)
 - Publishes `geometry_msgs/Twist` → `/cmd_vel` (spin and move, P-controller)
 - Subscribes `sensor_msgs/PointCloud2` ← `/sensor_scan` (cached for get_scan)
-- Subscribes `std_msgs/String` ← `/detected_objects` (cached for get_current_objects)
+- Subscribes `std_msgs/String` ← `/detected_objects` (cached for get_current_objects, simulation only)
 - Reads TF `map → base_link` (falls back to `base`, `vehicle`) for spin/move pose feedback
+- Reads TF `map → camera_link` for transforming real-world YOLO detections to map frame
 - Requires Nav2 stack running (`/navigate_to_pose` action server)
 
 **Message types dispatched by the bridge:**
@@ -156,11 +165,22 @@ Robot IP configured via env vars: `ROBOT_IP`, `OBJECT_SERVER_IP`.
 | `'x'` and `'y'` present | navigate | Nav2 action goal to `(x, y)` in map frame |
 | `command_type: 'spin'` | spin `angle_deg` | P-controller on `/cmd_vel` |
 | `command_type: 'move'` | move `distance_m` | P-controller on `/cmd_vel` |
-| `command_type: 'get_current_objects'` | live objects | Latest `/detected_objects` |
+| `command_type: 'get_current_objects'` | live objects | Latest `/detected_objects` topic; falls back to stored real-world detections if topic is empty |
 | `command_type: 'get_scan'` | lidar | 8-sector distances from `/sensor_scan` |
+| `command_type: 'update_objects'` | ingest detections | Transform camera-frame YOLO detections to map frame via TF, broadcast as static TF frames under `map`, store in memory |
+| `command_type: 'get_detected_objects'` | query store | Return last `update_objects` snapshot as `{frame_name: {px, py, label}}` |
 
 Note: `zmq_bridge_simulation/` is a reference for simulation only.
 Use `zmq_bridge_real/zmq_bridge_node_working_v2.py` for real robot deployment.
+
+**Real-world object detection (operator PC, `tools/`):**
+- `detector_node_real_world.py` — runs YOLO on RealSense streams; press Enter to send current detections to robot via `update_objects`
+- `image_receiver.py` — ZMQ subscriber for RealSense color+depth streams (topics: `realsense/color`, `realsense/depth`)
+- `detector_real_image.py` — standalone YOLO visualizer (no robot connection needed)
+
+**`DETECTION_MODE` env var** (set on operator PC, default `sim`):
+- `sim`: `get_detected_objects` queries `zmq_object_server.py` on port 5556 (Go2 simulation YOLO writes `detected_objects.json`)
+- `real`: `get_detected_objects` queries bridge on port 5555 via `get_detected_objects` command; `list_landmarks` also appends detected objects so agent can navigate to them by name
 
 ### Key Config Constants (nutri_rag/config.py)
 
@@ -182,8 +202,13 @@ Use `zmq_bridge_real/zmq_bridge_node_working_v2.py` for real robot deployment.
 - `nutri_graph/nutri_graph/kb/builder.py` — DuckDB KB construction
 - `nutri_graph/nutri_graph/models/gat_model.py` — GATv2 (4 node types, dual decoders)
 - `nutri-atlas/robot_control/robot_assistant.py` — Qwen Agent chat loop with tool dispatch
-- `nutri-atlas/robot_control/robot_side/zmq_bridge_real/zmq_bridge_node_working_v2.py` — ZMQ REP server (robot): Nav2 action navigate + spin/move(TF+cmd_vel) + scan/objects(topic cache)
-- `nutri-atlas/robot_control/robot_side/zmq_bridge_real/zmq_object_server.py` — ZMQ REP server (robot): serves persistent detected-objects map on port 5556
+- `nutri-atlas/robot_control/tools/navigate_tool.py` — landmark + detected-object navigation; merges YAML + bridge store when `DETECTION_MODE=real`
+- `nutri-atlas/robot_control/tools/object_tool.py` — `get_detected_objects` (sim: port 5556, real: port 5555) + `get_current_detected_objects`
+- `nutri-atlas/robot_control/tools/detector_node_real_world.py` — operator-side YOLO detector; press Enter to push detections to robot
+- `nutri-atlas/robot_control/tools/image_receiver.py` — ZMQ SUB for RealSense color+depth streams
+- `nutri-atlas/robot_control/robot_side/zmq_bridge_real/zmq_bridge_node_working_v2.py` — ZMQ REP server (robot): navigate + spin/move + scan + update_objects + get_detected_objects
+- `nutri-atlas/robot_control/robot_side/zmq_bridge_real/zmq_object_server.py` — ZMQ REP server (robot, simulation only): serves persistent detected-objects map on port 5556
+- `nutri-atlas/robot_control/robot_side/zmq_bridge_real/realsense_zmq/launch/bringup_with_zmq.launch.py` — launches RealSense driver + ZMQ image bridge + static TF `base_link → camera_link`
 - `nutri-atlas/robot_control/robot_side/coordinates_record.py` — TF-based tool to record landmark (x, y) coordinates interactively
 - `nutri-atlas/scripts/benchmark_cost.py` — agent cost benchmark (time, tokens, power); use `--mock` to bypass ZMQ
 

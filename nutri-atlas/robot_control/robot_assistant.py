@@ -43,7 +43,7 @@ TOOL_DEFINITIONS = [
         'type': 'function',
         'function': {
             'name': 'list_landmarks',
-            'description': 'List all named landmarks the robot can navigate to, including their positions and descriptions.',
+            'description': 'List all locations the robot can navigate to. Includes both fixed named landmarks AND any objects recently detected by the camera. Always call this tool fresh — detected objects change every time the camera scans.',
             'parameters': {
                 'type': 'object',
                 'properties': {},
@@ -222,7 +222,7 @@ SYSTEM_MSG = {
     'content': (
         'You are a robot assistant that can navigate and provide nutritional advice. You have these tools:\n\n'
         'Navigation:\n'
-        '- list_landmarks: list all navigable locations.\n'
+        '- list_landmarks: list ALL navigable locations — both fixed landmarks AND recently detected objects. Always call this fresh; never answer from memory.\n'
         '- navigate_to_landmark: go to a named landmark (landmark_name), or directly to coordinates (x, y) from a detected object.\n'
         '- spin_robot: rotate in place in degrees (positive=CCW, negative=CW).\n'
         '- get_detected_objects: persistent map of all ever-seen objects with their positions. Updates only while the robot moves.\n'

@@ -52,8 +52,9 @@ Mimir combines **Graph Attention Networks (GAT)** with **Retrieval-Augmented Gen
                     │                           │
                     │  zmq_bridge_node :5555    │
                     │    → ROS2 nav / cmd_vel   │
+                    │    → TF-based detection   │
                     │  zmq_object_server :5556  │
-                    │    → ROS2 camera detect   │
+                    │    → simulation only      │
                     └──────────────────────────┘
 ```
 
@@ -88,24 +89,29 @@ Three modes:
 
 Connects the nutrition assistant to a Clearpath Go2 robot via Qwen Agent tool-calling. The robot assistant can navigate, detect objects, and provide meal recommendations — all through natural language.
 
-- **Navigation tools**: go to landmarks, spin, detect objects via camera
+- **Navigation tools**: go to landmarks or detected objects (by name or coordinates), spin
+- **Detection tools**: `get_detected_objects` / `get_current_detected_objects` — query the object store
+- **Real-world detection**: `detector_node_real_world.py` runs YOLO on RealSense streams; press Enter to push detections to the robot as TF frames and make them navigable
 - **Nutrition tool**: `get_meal_recommendation` wraps `nutri_rag`'s full pipeline (parse → gap analysis → GAT expansion → recommendation)
 - **LLM**: Qwen3.5-9B as the orchestration agent, deciding when to call navigation vs nutrition tools
 - **Communication**: ZMQ REQ client → sends commands to robot_side
 
-Example: *"I ate an apple and milk for breakfast, what should I eat for lunch?"* → the agent calls `get_meal_recommendation` → returns a personalized suggestion based on nutritional gap analysis.
+Set `DETECTION_MODE=real` on the operator PC to switch from simulation (port 5556 object server) to real-world mode (detections pushed from YOLO via port 5555).
 
 ### [robot_side](robot_side/) — ZMQ Bridge (Robot Side)
 
-Runs on the robot's onboard computer. Two ZMQ REP servers receive commands from nutri-atlas and dispatch them to ROS2:
+Runs on the robot's onboard computer:
 
-- **`zmq_bridge_node.py`** (port 5555): handles navigation goals, spin, move, current object queries, and LiDAR scans. Each command blocks until the robot completes the action.
-- **`zmq_object_server.py`** (port 5556): serves a persistent map of all detected objects. A background ROS2 subscriber updates the map as the camera detects new objects.
+- **`zmq_bridge_node_working_v2.py`** (port 5555): handles navigation, spin, move, LiDAR, and real-world object detection (`update_objects` / `get_detected_objects`). Transforms camera-frame YOLO detections to map frame via TF and broadcasts them as static TF frames.
+- **`zmq_object_server.py`** (port 5556, simulation only): serves a persistent map from `detected_objects.json` written by the Go2's onboard YOLO.
 
 ```
-nutri-atlas (operator PC)          robot_side (robot onboard)
-  zmq_client.py ──ZMQ REQ──→  zmq_bridge_node.py ──→ ROS2 /way_point, /cmd_vel
-  object_tool.py ─ZMQ REQ──→  zmq_object_server.py ──→ ROS2 camera detections
+Real world:
+  detector_node_real_world.py ──ZMQ REQ──→  zmq_bridge_node.py ──→ TF frames under map
+  robot_assistant.py ──────────ZMQ REQ──→  zmq_bridge_node.py ──→ get_detected_objects
+
+Simulation:
+  robot_assistant.py ──────────ZMQ REQ──→  zmq_object_server.py ──→ detected_objects.json
 ```
 
 ### [PFoodReq](PFoodReq/) — Benchmark Data
@@ -372,25 +378,29 @@ The system is designed to run across two machines on the same network:
 │  Operator PC (GPU required)     │       │  Robot Onboard PC           │
 │                                 │       │                             │
 │  LLM server (:8080)             │  TCP  │  zmq_bridge_node (:5555)   │
-│  robot_assistant.py ────────────┼──────►│  zmq_object_server (:5556) │
-│  nutri_rag (embeddings + DB)    │       │  ROS2 runtime              │
-│  nutri_graph (KB + GAT)         │       │                             │
-└─────────────────────────────────┘       └─────────────────────────────┘
+│  robot_assistant.py ────────────┼──────►│  ROS2 runtime               │
+│  detector_node_real_world.py ───┼──────►│  RealSense + TF frames      │
+│  nutri_rag (embeddings + DB)    │       │                             │
+│  nutri_graph (KB + GAT)         │       │  zmq_object_server (:5556)  │
+└─────────────────────────────────┘       │  (simulation only)          │
+                                          └─────────────────────────────┘
 ```
 
 ### Robot Onboard PC
 
-Copy `robot_side/` to the robot and start the two ZMQ servers:
-
 ```bash
-# Terminal 1
-python zmq_bridge_node.py --port 5555
+source /opt/ros/humble/setup.bash && source ~/test_ws/install/setup.bash
 
-# Terminal 2
-python zmq_object_server.py --port 5556
+# Terminal 1 — RealSense + ZMQ image bridge + static TF (real world)
+ros2 launch realsense_zmq bringup_with_zmq.launch.py
+
+# Terminal 2 — ZMQ navigation + detection bridge
+cd nutri-atlas/robot_control/robot_side/zmq_bridge_real
+python zmq_bridge_node_working_v2.py --port 5555
+
+# Terminal 3 — simulation only (not needed for real world)
+# python zmq_object_server.py --port 5556
 ```
-
-Only dependency: `pip install pyzmq`.
 
 ### Operator PC
 
@@ -402,10 +412,14 @@ cd ~/work/atlas/mimir/nutri_rag
 bash scripts/start_server.sh
 
 # Terminal 2 — robot assistant
-export ROBOT_IP=<robot_ip>            # e.g. 192.168.0.114 for real robot; 127.0.0.1 for simulation
-export OBJECT_SERVER_IP=<robot_ip>    # same IP
+export ROBOT_IP=192.168.0.114         # robot IP
+export DETECTION_MODE=real            # omit for simulation (default: sim)
 cd ~/work/atlas/mimir/nutri-atlas/robot_control
 python robot_assistant.py
+
+# Terminal 3 — real-world YOLO detector (press Enter to push detections)
+cd ~/work/atlas/mimir/nutri-atlas/robot_control/tools
+python detector_node_real_world.py --robot-ip 192.168.0.114
 ```
 
 ### Network Checklist

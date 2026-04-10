@@ -19,6 +19,8 @@ _ROBOT_IP   = os.environ.get('ROBOT_IP',      '10.203.168.250')
 _ROBOT_PORT = int(os.environ.get('ROBOT_PORT', 5555))
 _NAV_TIMEOUT_MS = int(os.environ.get('NAV_TIMEOUT_MS', 60000))
 
+_DETECTION_MODE = os.environ.get('DETECTION_MODE', 'sim')
+
 _loader = LandmarkLoader()
 _client = ZMQNavClient(robot_ip=_ROBOT_IP, port=_ROBOT_PORT, timeout_ms=_NAV_TIMEOUT_MS)
 
@@ -60,9 +62,22 @@ class NavigateToLandmark(BaseTool):
         if landmark_name:
             try:
                 pos = _loader.get(landmark_name)
-            except KeyError as e:
-                return json.dumps({'status': 'failed', 'message': str(e)})
-            x, y = pos['x'], pos['y']
+                x, y = pos['x'], pos['y']
+            except KeyError:
+                # In real world, also check bridge-stored detected objects
+                if _DETECTION_MODE == 'real':
+                    reply = _client.send_command('get_detected_objects')
+                    obj = reply.get('objects', {}).get(landmark_name)
+                    if obj:
+                        x, y = obj['px'], obj['py']
+                    else:
+                        available = list(_loader._landmarks.keys()) + list(reply.get('objects', {}).keys())
+                        return json.dumps({'status': 'failed',
+                                           'message': f"'{landmark_name}' not found. Available: {', '.join(available)}"})
+                else:
+                    available = ', '.join(_loader._landmarks.keys())
+                    return json.dumps({'status': 'failed',
+                                       'message': f"'{landmark_name}' not found. Available: {available}"})
         elif 'x' in args and 'y' in args:
             x, y = float(args['x']), float(args['y'])
         else:
@@ -76,12 +91,22 @@ class NavigateToLandmark(BaseTool):
 @register_tool('list_landmarks')
 class ListLandmarks(BaseTool):
     description = (
-        'List all named landmarks the robot can navigate to, '
-        'including their positions and descriptions.'
+        'List all locations the robot can navigate to. '
+        'Includes both fixed named landmarks AND any objects recently detected by the camera. '
+        'Always call this tool fresh — detected objects change every time the camera scans.'
     )
     parameters = []
 
     def call(self, params: str, **kwargs) -> str:
         landmarks = _loader.list_all()
+        if _DETECTION_MODE == 'real':
+            reply = _client.send_command('get_detected_objects')
+            for name, obj in reply.get('objects', {}).items():
+                landmarks.append({
+                    'name': name,
+                    'x': obj['px'],
+                    'y': obj['py'],
+                    'description': f"Detected {obj.get('label', name)} (from camera)",
+                })
         print(f"[list_landmarks] listing all landmarks")
         return json.dumps(landmarks, ensure_ascii=False)

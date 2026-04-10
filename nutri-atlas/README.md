@@ -18,12 +18,15 @@ User ──► Qwen 3.5-9B Agent ──► Tool calls ──► ZMQ bridge ─�
 robot_assistant.py       # Main chat loop + LLM agent
 robot_control/
   tools/
-    navigate_tool.py     # Navigate to named landmarks or coordinates
-    object_tool.py       # Query live camera or persistent object map
-    motion_tool.py       # Spin and move primitives
-    lidar_tool.py        # LiDAR scan data
-    zmq_client.py        # ZMQ transport layer
-    landmark_loader.py   # Loads landmarks from YAML
+    navigate_tool.py          # Navigate to named landmarks, coordinates, or detected objects
+    object_tool.py            # Query live camera or stored detection map (sim/real switch)
+    motion_tool.py            # Spin and move primitives
+    lidar_tool.py             # LiDAR scan data
+    zmq_client.py             # ZMQ transport layer
+    landmark_loader.py        # Loads landmarks from YAML
+    detector_node_real_world.py  # YOLO detector (RealSense); press Enter to push to robot
+    image_receiver.py         # ZMQ subscriber for RealSense color+depth streams
+    detector_real_image.py    # Standalone YOLO visualizer (no robot)
   config/
     landmarks.yaml       # Named room positions (kitchen, bedroom, etc.)
 scripts/
@@ -79,7 +82,14 @@ Key server settings (edit `start_server.sh` to change):
 
 ```bash
 export ROBOT_IP=<your-robot-ip>
+export DETECTION_MODE=real   # set for real robot; omit for simulation (default: sim)
 python robot_control/robot_assistant.py
+
+# Real world only — in a second terminal, run the YOLO detector:
+cd robot_control/tools
+python detector_node_real_world.py --robot-ip <your-robot-ip>
+# Point camera at objects and press Enter to push detections to the robot.
+# They will appear in list_landmarks and get_detected_objects automatically.
 ```
 
 ## Configuration
@@ -114,13 +124,14 @@ User: What objects have been detected in the apartment so far?
 
 | Tool | Description |
 |------|-------------|
-| `navigate_to_landmark` | Go to a named room |
-| `navigate_to_coordinates` | Go to (x, y) coordinates |
-| `get_detected_objects` | Query the persistent object map |
-| `get_current_detected_objects` | Query what the camera sees right now |
-| `spin` | Rotate the robot by a given angle |
-| `move` | Move forward/backward(Disabled) |
-| `get_lidar_scan` | Get LiDAR distance readings(Disabled) |
+| `list_landmarks` | List all navigable locations — fixed landmarks + detected objects (real world) |
+| `navigate_to_landmark` | Go to a named landmark or detected object by name, or by (x, y) coordinates |
+| `get_detected_objects` | Query stored detection snapshot (sim: port 5556; real: port 5555) |
+| `get_current_detected_objects` | Query what the camera sees right now; falls back to stored detections in real world |
+| `spin_robot` | Rotate the robot by a given angle |
+| `move_robot` | Move forward/backward (disabled by default) |
+| `get_lidar_scan` | Get LiDAR distance readings (disabled by default) |
+| `get_meal_recommendation` | Personalized meal recommendation via nutri_rag |
 
 ## Benchmarking
 
