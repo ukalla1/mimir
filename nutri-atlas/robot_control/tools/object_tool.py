@@ -1,13 +1,15 @@
 """
 Qwen Agent tools for querying the detected-objects map.
 
-Registers two tools:
-  - get_detected_objects         : full persistent map via zmq_object_server (port 5556)
+Registers three tools:
+  - get_detected_objects         : full persistent map via zmq_object_server (port 5556) or bridge (real)
   - get_current_detected_objects : live detections via zmq_bridge_node (port 5555)
+  - forget_object                : remove a single entry from the persistent map (real world only)
 """
 import json
 import os
 
+import json5
 import zmq
 from qwen_agent.tools.base import BaseTool, register_tool
 
@@ -83,4 +85,28 @@ class GetCurrentDetectedObjects(BaseTool):
     def call(self, params: str, **kwargs) -> str:
         print('[get_current_detected_objects] called')
         result = _bridge_client.send_command('get_current_objects')
+        return json.dumps(result, ensure_ascii=False)
+
+
+@register_tool('forget_object')
+class ForgetObject(BaseTool):
+    description = (
+        'Remove a previously detected object from the persistent detected-objects map. '
+        'Use when an object is no longer relevant, was detected incorrectly, or has moved. '
+        'Call list_landmarks or get_detected_objects first to get the exact frame name.'
+    )
+    parameters = [
+        {
+            'name': 'frame_name',
+            'type': 'string',
+            'description': 'Exact frame name to remove, e.g. "detected_bottle_0".',
+            'required': True,
+        }
+    ]
+
+    def call(self, params: str, **kwargs) -> str:
+        args = json5.loads(params)
+        frame_name = args.get('frame_name', '').strip()
+        print(f'[forget_object] removing {frame_name}')
+        result = _bridge_client.send_command('forget_object', frame_name=frame_name)
         return json.dumps(result, ensure_ascii=False)

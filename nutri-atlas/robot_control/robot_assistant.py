@@ -21,9 +21,8 @@ import re
 from qwen_agent.llm import get_chat_model
 
 from tools.navigate_tool import NavigateToLandmark, ListLandmarks  # noqa: F401
-from tools.object_tool import GetDetectedObjects  # noqa: F401
+from tools.object_tool import GetDetectedObjects, GetCurrentDetectedObjects, ForgetObject  # noqa: F401
 from tools.motion_tool import SpinRobot, MoveRobot  # noqa: F401
-from tools.object_tool import GetCurrentDetectedObjects  # noqa: F401
 from tools.lidar_tool import GetLidarScan  # noqa: F401
 from tools.nutrition_tool import GetMealRecommendation  # noqa: F401
 
@@ -146,6 +145,23 @@ TOOL_DEFINITIONS = [
     {
         'type': 'function',
         'function': {
+            'name': 'forget_object',
+            'description': 'Remove a detected object from the persistent map by its frame name (e.g. "detected_bottle_0"). Use when an object is stale, was detected incorrectly, or has moved.',
+            'parameters': {
+                'type': 'object',
+                'properties': {
+                    'frame_name': {
+                        'type': 'string',
+                        'description': 'Exact frame name to remove, e.g. "detected_bottle_0".',
+                    },
+                },
+                'required': ['frame_name'],
+            },
+        },
+    },
+    {
+        'type': 'function',
+        'function': {
             'name': 'get_meal_recommendation',
             'description': (
                 'Get a personalized meal recommendation based on what the user has eaten. '
@@ -207,14 +223,15 @@ TOOL_DEFINITIONS = [
 
 # --- Tool instances ---
 _TOOLS = {
-    'list_landmarks':        ListLandmarks(),
-    'navigate_to_landmark':  NavigateToLandmark(),
-    'get_detected_objects':  GetDetectedObjects(),
-    'spin_robot':                    SpinRobot(),
-    # 'move_robot':                    MoveRobot(),
-    'get_current_detected_objects':  GetCurrentDetectedObjects(),
-    # 'get_lidar_scan':                GetLidarScan(),
-    'get_meal_recommendation':       GetMealRecommendation(),
+    'list_landmarks':               ListLandmarks(),
+    'navigate_to_landmark':         NavigateToLandmark(),
+    'get_detected_objects':         GetDetectedObjects(),
+    'spin_robot':                   SpinRobot(),
+    # 'move_robot':                 MoveRobot(),
+    'get_current_detected_objects': GetCurrentDetectedObjects(),
+    # 'get_lidar_scan':             GetLidarScan(),
+    'forget_object':                ForgetObject(),
+    'get_meal_recommendation':      GetMealRecommendation(),
 }
 
 SYSTEM_MSG = {
@@ -225,8 +242,9 @@ SYSTEM_MSG = {
         '- list_landmarks: list ALL navigable locations — both fixed landmarks AND recently detected objects. Always call this fresh; never answer from memory.\n'
         '- navigate_to_landmark: go to a named landmark (landmark_name), or directly to coordinates (x, y) from a detected object.\n'
         '- spin_robot: rotate in place in degrees (positive=CCW, negative=CW).\n'
-        '- get_detected_objects: persistent map of all ever-seen objects with their positions. Updates only while the robot moves.\n'
-        '- get_current_detected_objects: objects visible RIGHT NOW (no stale entries). Use after each spin.\n\n'
+        '- get_detected_objects: persistent map of all ever-detected objects (accumulates across sessions). Call fresh every time.\n'
+        '- get_current_detected_objects: objects visible RIGHT NOW (no stale entries). Use after each spin.\n'
+        '- forget_object: remove a stale or incorrect detected object from the persistent map by its frame name.\n\n'
         'Nutrition:\n'
         '- get_meal_recommendation: given what the user has eaten, recommend what to eat next based on nutritional gap analysis.\n\n'
         'To explore a location, you MUST do a full 360° scan: '

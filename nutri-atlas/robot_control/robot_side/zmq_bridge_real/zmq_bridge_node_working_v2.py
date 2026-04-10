@@ -40,7 +40,11 @@ Message types handled:
 
 7. Get detected objects — command_type == 'get_detected_objects'
    {"goal_id": "...", "command_type": "get_detected_objects"}
-   → Return the last snapshot saved by update_objects as {frame: {px, py, label}}
+   → Return persistent detected_objects.json map as {frame: {px, py, label}}
+
+8. Forget object     — command_type == 'forget_object'
+   {"goal_id": "...", "command_type": "forget_object", "frame_name": "detected_bottle_0"}
+   → Remove a single entry from detected_objects.json
 
 Usage:
     python zmq_bridge_node.py [--port 5555]
@@ -74,6 +78,20 @@ from tf2_ros import (Buffer, TransformListener, StaticTransformBroadcaster,
 
 
 _MAP_FRAME = 'map'
+_DETECTED_OBJECTS_FILE = os.path.expanduser('~/detected_objects.json')
+
+
+def _load_detected_objects(path: str) -> dict:
+    try:
+        with open(path, 'r') as f:
+            return json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return {}
+
+
+def _save_detected_objects(path: str, objects: dict):
+    with open(path, 'w') as f:
+        json.dump(objects, f, indent=2)
 
 # P-controller limits
 _MAX_VYAW = 0.8   # rad/s
@@ -210,6 +228,11 @@ class ZMQBridgeNode(Node):
         elif command_type == 'get_detected_objects':
             self.get_logger().info(f'[{goal_id[:8]}] get_detected_objects')
             return self._handle_get_detected_objects(goal_id)
+
+        elif command_type == 'forget_object':
+            frame_name = msg.get('frame_name', '')
+            self.get_logger().info(f'[{goal_id[:8]}] forget_object {frame_name}')
+            return self._handle_forget_object(goal_id, frame_name)
 
         elif 'x' in msg and 'y' in msg:
             gx, gy = float(msg['x']), float(msg['y'])
@@ -506,13 +529,18 @@ class ZMQBridgeNode(Node):
 
         self._obj_tf_broadcaster.sendTransform(stamps)
 
-        # Save to in-memory store so get_detected_objects can serve it
+        # Save to in-memory store (current-frame snapshot for get_current_objects)
         new_store = {
             entry['frame']: {'px': entry['map_x'], 'py': entry['map_y'], 'label': entry['label']}
             for entry in published
         }
         with self._stored_objects_lock:
             self._stored_objects = new_store
+
+        # Merge into persistent file (accumulates across sessions)
+        existing = _load_detected_objects(_DETECTED_OBJECTS_FILE)
+        existing.update(new_store)
+        _save_detected_objects(_DETECTED_OBJECTS_FILE, existing)
 
         return {
             'goal_id': goal_id,
@@ -525,9 +553,18 @@ class ZMQBridgeNode(Node):
     # get_detected_objects: return last update_objects snapshot
     # ------------------------------------------------------------------
     def _handle_get_detected_objects(self, goal_id: str) -> dict:
-        with self._stored_objects_lock:
-            objects = dict(self._stored_objects)
+        objects = _load_detected_objects(_DETECTED_OBJECTS_FILE)
         return {'goal_id': goal_id, 'status': 'ok', 'objects': objects}
+
+    def _handle_forget_object(self, goal_id: str, frame_name: str) -> dict:
+        objects = _load_detected_objects(_DETECTED_OBJECTS_FILE)
+        if frame_name not in objects:
+            return {'goal_id': goal_id, 'status': 'failed',
+                    'message': f"'{frame_name}' not found in detected objects"}
+        del objects[frame_name]
+        _save_detected_objects(_DETECTED_OBJECTS_FILE, objects)
+        return {'goal_id': goal_id, 'status': 'success',
+                'message': f"Removed '{frame_name}' from detected objects"}
 
     # ------------------------------------------------------------------
     # ROS topic callbacks (called from rclpy.spin thread)
