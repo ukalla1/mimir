@@ -5,36 +5,23 @@ The agent can:
   - list_landmarks       : show all named positions in the map
   - navigate_to_landmark : send the robot to a named position and report result
 
-Setup:
-    export ROBOT_IP=<robot onboard IP>    # default: 127.0.0.1
-    export ROBOT_PORT=5555                # default: 5555
-    export NAV_TIMEOUT_MS=60000          # default: 60000 (60s)
+Setup (env vars or CLI args):
+    python robot_control/robot_assistant.py --robot-ip 192.168.0.114 --robot-port 5555
+
+    # or via env vars:
+    export ROBOT_IP=192.168.0.114
+    export ROBOT_PORT=5555
+    export NAV_TIMEOUT_MS=60000
 
     conda activate qwen
     python robot_control/robot_assistant.py
 
 Make sure start_server.sh is running first.
 """
+import argparse
 import json
+import os
 import re
-
-from qwen_agent.llm import get_chat_model
-
-from tools.navigate_tool import NavigateToLandmark, ListLandmarks  # noqa: F401
-from tools.object_tool import GetDetectedObjects, GetCurrentDetectedObjects, ForgetObject  # noqa: F401
-from tools.motion_tool import SpinRobot, MoveRobot  # noqa: F401
-from tools.lidar_tool import GetLidarScan  # noqa: F401
-from tools.nutrition_tool import GetMealRecommendation  # noqa: F401
-
-
-# --- LLM config ---
-llm = get_chat_model({
-    'model': 'unsloth/Qwen3.5-9B-GGUF',
-    'model_type': 'qwenvl_oai',
-    'model_server': 'http://localhost:8080/v1',
-    'api_key': 'EMPTY',
-    'generate_cfg': {'thought_in_content': True},
-})
 
 # --- Tool definitions (OpenAI function format) ---
 TOOL_DEFINITIONS = [
@@ -221,18 +208,6 @@ TOOL_DEFINITIONS = [
     },
 ]
 
-# --- Tool instances ---
-_TOOLS = {
-    'list_landmarks':               ListLandmarks(),
-    'navigate_to_landmark':         NavigateToLandmark(),
-    'get_detected_objects':         GetDetectedObjects(),
-    'spin_robot':                   SpinRobot(),
-    # 'move_robot':                 MoveRobot(),
-    'get_current_detected_objects': GetCurrentDetectedObjects(),
-    # 'get_lidar_scan':             GetLidarScan(),
-    'forget_object':                ForgetObject(),
-    'get_meal_recommendation':      GetMealRecommendation(),
-}
 
 SYSTEM_MSG = {
     'role': 'system',
@@ -279,7 +254,7 @@ def _parse_tool_calls(text: str) -> list:
     return calls
 
 
-def _run_turn(messages: list) -> str:
+def _run_turn(messages: list, llm, tool_definitions: list, tools: dict) -> str:
     """
     Run one LLM turn (with tool loop). Returns the final assistant text reply.
     Modifies messages in-place by appending assistant + tool result messages.
@@ -287,7 +262,7 @@ def _run_turn(messages: list) -> str:
     while True:
         # Collect full streamed response
         full_content = ''
-        for chunks in llm.chat(messages=messages, functions=TOOL_DEFINITIONS, stream=True):
+        for chunks in llm.chat(messages=messages, functions=tool_definitions, stream=True):
             for chunk in chunks:
                 if chunk.get('role') == 'assistant':
                     full_content = chunk.get('content', '')
@@ -307,21 +282,53 @@ def _run_turn(messages: list) -> str:
         for call in tool_calls:
             name = call.get('name', '')
             args = call.get('arguments', call.get('parameters', {}))
-            # print(f'  [TOOL CALL]  → {name}({json.dumps(args)})')
-
-            tool = _TOOLS.get(name)
+            tool = tools.get(name)
             result = tool.call(json.dumps(args)) if tool else json.dumps({'error': f'Unknown tool: {name}'})
-            # print(f'  [TOOL RESULT] ← {result}\n')
-
             messages.append({'role': 'function', 'name': name, 'content': result})
 
 
 # --- Chat loop ---
 def main():
-    import os
+    parser = argparse.ArgumentParser(description='Robot Navigation Assistant')
+    parser.add_argument('--robot-ip',   default=os.environ.get('ROBOT_IP',      '127.0.0.1'))
+    parser.add_argument('--robot-port', default=os.environ.get('ROBOT_PORT',    '5555'))
+    parser.add_argument('--detection-mode', default=os.environ.get('DETECTION_MODE', 'sim'),
+                        choices=['sim', 'real'])
+    args = parser.parse_args()
+
+    # Set env vars before importing tools (they read env at module load time)
+    os.environ['ROBOT_IP']        = args.robot_ip
+    os.environ['ROBOT_PORT']      = str(args.robot_port)
+    os.environ['OBJECT_SERVER_IP'] = args.robot_ip
+    os.environ['DETECTION_MODE']  = args.detection_mode
+
+    from qwen_agent.llm import get_chat_model
+    from tools.navigate_tool import NavigateToLandmark, ListLandmarks
+    from tools.object_tool import GetDetectedObjects, GetCurrentDetectedObjects, ForgetObject
+    from tools.motion_tool import SpinRobot
+    from tools.nutrition_tool import GetMealRecommendation
+
+    llm = get_chat_model({
+        'model': 'unsloth/Qwen3.5-9B-GGUF',
+        'model_type': 'qwenvl_oai',
+        'model_server': 'http://localhost:8080/v1',
+        'api_key': 'EMPTY',
+        'generate_cfg': {'thought_in_content': True},
+    })
+
+    tools = {
+        'list_landmarks':               ListLandmarks(),
+        'navigate_to_landmark':         NavigateToLandmark(),
+        'get_detected_objects':         GetDetectedObjects(),
+        'spin_robot':                   SpinRobot(),
+        'get_current_detected_objects': GetCurrentDetectedObjects(),
+        'forget_object':                ForgetObject(),
+        'get_meal_recommendation':      GetMealRecommendation(),
+    }
+
     print('Robot Navigation Assistant (type "exit" to quit)')
-    print(f'  Robot IP  : {os.environ.get("ROBOT_IP", "127.0.0.1")}')
-    print(f'  Robot Port: {os.environ.get("ROBOT_PORT", "5555")}')
+    print(f'  Robot IP      : {args.robot_ip}:{args.robot_port}')
+    print(f'  Detection mode: {args.detection_mode}')
     print()
 
     messages = [SYSTEM_MSG]
@@ -334,7 +341,7 @@ def main():
         messages.append({'role': 'user', 'content': query})
 
         print('Assistant: ', end='', flush=True)
-        reply = _run_turn(messages)
+        reply = _run_turn(messages, llm, TOOL_DEFINITIONS, tools)
         print(reply)
         print()
 

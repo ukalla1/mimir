@@ -391,15 +391,25 @@ The system is designed to run across two machines on the same network:
 ```bash
 source /opt/ros/humble/setup.bash && source ~/test_ws/install/setup.bash
 
-# Terminal 1 — RealSense + ZMQ image bridge + static TF (real world)
+# --- Real world ---
+
+# Terminal 1 — RealSense camera + ZMQ image bridge + static TF (base_link → camera_link)
 ros2 launch realsense_zmq bringup_with_zmq.launch.py
 
-# Terminal 2 — ZMQ navigation + detection bridge
+# Terminal 2 — ZMQ bridge (navigation + detection)
 cd nutri-atlas/robot_control/robot_side/zmq_bridge_real
-python zmq_bridge_node_working_v2.py --port 5555
+python zmq_bridge_node_working_v2.py
+# Optional: --port 5555 --spin-kp 1.5 --move-kp 0.8
 
-# Terminal 3 — simulation only (not needed for real world)
-# python zmq_object_server.py --port 5556
+# Detected objects are stored persistently at ~/detected_objects.json on the robot.
+
+# --- Simulation ---
+
+# Terminal 1 — ZMQ navigation bridge
+python zmq_bridge_node_working_v2.py
+
+# Terminal 2 — persistent object map server (reads detected_objects.json from Go2 YOLO)
+python zmq_object_server.py   # port 5556
 ```
 
 ### Operator PC
@@ -407,27 +417,49 @@ python zmq_bridge_node_working_v2.py --port 5555
 Complete steps 0–6 from [Implementation Process](#implementation-process-all-submodules) first, then:
 
 ```bash
-# Terminal 1 — LLM server
+# Terminal 1 — LLM server (required for all modes)
 cd ~/work/atlas/mimir/nutri_rag
 bash scripts/start_server.sh
 
-# Terminal 2 — robot assistant
-export ROBOT_IP=192.168.0.114         # robot IP
-export DETECTION_MODE=real            # omit for simulation (default: sim)
-cd ~/work/atlas/mimir/nutri-atlas/robot_control
-python robot_assistant.py
+# --- Real world ---
 
-# Terminal 3 — real-world YOLO detector (press Enter to push detections)
+# Terminal 2 — robot assistant
+cd ~/work/atlas/mimir/nutri-atlas/robot_control
+python robot_assistant.py --robot-ip 192.168.0.114 --detection-mode real
+
+# Terminal 3a — manual detector: press Enter to push current frame to robot
 cd ~/work/atlas/mimir/nutri-atlas/robot_control/tools
 python detector_node_real_world.py --robot-ip 192.168.0.114
+
+# Terminal 3b — auto detector (alternative to 3a): sends detections automatically
+python detector_node_real_world_auto.py --robot-ip 192.168.0.114
+# Filter by label and confidence:
+python detector_node_real_world_auto.py --robot-ip 192.168.0.114 \
+    --targets person chair --stable-conf 0.6 --stable-frames 10
+
+# --- Simulation ---
+
+# Terminal 2 — robot assistant (default mode)
+cd ~/work/atlas/mimir/nutri-atlas/robot_control
+python robot_assistant.py --robot-ip 127.0.0.1
 ```
+
+### What changes between sim and real
+
+| | Simulation | Real World |
+|---|---|---|
+| Object detection source | Go2 onboard YOLO → `/detected_objects` topic | YOLO on operator PC → `update_objects` ZMQ cmd |
+| `get_detected_objects` | port 5556 (`zmq_object_server`) | port 5555 bridge (`get_detected_objects`) |
+| `list_landmarks` | YAML only | YAML + detected objects |
+| Robot processes | bridge + `zmq_object_server` | bridge + `bringup_with_zmq` |
+| Operator processes | `robot_assistant.py` | `robot_assistant.py` + detector |
 
 ### Network Checklist
 
 - Both machines on the same subnet (e.g. `192.168.0.x`).
 - Verify connectivity: `ping <robot_ip>` from operator PC.
-- Firewall allows inbound TCP `5555` and `5556` on robot.
-- LLM runs on `localhost:8080` on the operator PC (no cross-machine access needed).
+- Firewall allows inbound TCP `5555` on robot (real world); also `5556` for simulation.
+- LLM server runs on `localhost:8080` on the operator PC only.
 
 ## Tech Stack
 

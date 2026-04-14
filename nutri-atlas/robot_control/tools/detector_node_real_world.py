@@ -8,7 +8,7 @@ The robot transforms them to map frame and broadcasts TF frames:
     detected_{label}_{i}  as children of  map
 
 Usage:
-    python detector_node_real_world.py --robot-ip 192.168.0.114
+    python detector_node_real_world.py --robot-ip 192.168.0.114 or 164 for realworld or default 127.0.0.1 for simulation
 
 Verify on robot:
     ros2 tf echo map detected_bottle_0

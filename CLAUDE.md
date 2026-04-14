@@ -110,17 +110,26 @@ cd nutri-atlas/robot_control/robot_side
 python coordinates_record.py --output landmarks_record.json
 ```
 
-Set the robot IP on the operator PC before running `robot_assistant.py`:
+Run the robot assistant on the operator PC (CLI args take precedence over env vars):
 
 ```bash
-export ROBOT_IP=192.168.0.114   # robot's IP on shared WiFi (192.168.0.x subnet)
-export ROBOT_PORT=5555
-export DETECTION_MODE=real      # omit (or set to 'sim') for simulation
-cd nutri-atlas/robot_control && python robot_assistant.py
+# Real world
+cd nutri-atlas/robot_control
+python robot_assistant.py --robot-ip 192.168.0.114 --detection-mode real
 
-# In a second terminal — real-world YOLO detector (press Enter to push detections to robot)
+# Simulation (default)
+python robot_assistant.py --robot-ip 127.0.0.1
+
+# Real-world detectors (separate terminal) — pick one:
 cd nutri-atlas/robot_control/tools
+
+# Manual: press Enter to push current frame to robot
 python detector_node_real_world.py --robot-ip 192.168.0.114
+
+# Automatic: sends stable detections without manual input
+python detector_node_real_world_auto.py --robot-ip 192.168.0.114
+python detector_node_real_world_auto.py --robot-ip 192.168.0.114 \
+    --targets person chair --stable-conf 0.6 --stable-frames 10
 ```
 
 ## Architecture Details
@@ -165,22 +174,36 @@ Robot IP configured via env vars: `ROBOT_IP`, `OBJECT_SERVER_IP`.
 | `'x'` and `'y'` present | navigate | Nav2 action goal to `(x, y)` in map frame |
 | `command_type: 'spin'` | spin `angle_deg` | P-controller on `/cmd_vel` |
 | `command_type: 'move'` | move `distance_m` | P-controller on `/cmd_vel` |
-| `command_type: 'get_current_objects'` | live objects | Latest `/detected_objects` topic; falls back to stored real-world detections if topic is empty |
+| `command_type: 'get_current_objects'` | live objects | Latest `/detected_objects` topic (sim); falls back to `_stored_objects` in-memory (real) |
 | `command_type: 'get_scan'` | lidar | 8-sector distances from `/sensor_scan` |
-| `command_type: 'update_objects'` | ingest detections | Transform camera-frame YOLO detections to map frame via TF, broadcast as static TF frames under `map`, store in memory |
-| `command_type: 'get_detected_objects'` | query store | Return last `update_objects` snapshot as `{frame_name: {px, py, label}}` |
+| `command_type: 'update_objects'` | ingest detections | Transform camera-frame YOLO detections to map frame via TF, broadcast static TF frames, store in memory + `~/detected_objects.json` (with spatial dedup: skip same-label within 0.5 m) |
+| `command_type: 'get_detected_objects'` | persistent store | Read `~/detected_objects.json` — accumulates across sessions |
+| `command_type: 'forget_object'` | delete entry | Remove one entry from `~/detected_objects.json` by frame name |
 
 Note: `zmq_bridge_simulation/` is a reference for simulation only.
 Use `zmq_bridge_real/zmq_bridge_node_working_v2.py` for real robot deployment.
 
 **Real-world object detection (operator PC, `tools/`):**
-- `detector_node_real_world.py` — runs YOLO on RealSense streams; press Enter to send current detections to robot via `update_objects`
+- `detector_node_real_world.py` — manual: press Enter to send current YOLO detections to robot
+- `detector_node_real_world_auto.py` — automatic: sends detections after N stable frames; supports `--targets` label filter and `--stable-conf` confidence gate
 - `image_receiver.py` — ZMQ subscriber for RealSense color+depth streams (topics: `realsense/color`, `realsense/depth`)
-- `detector_real_image.py` — standalone YOLO visualizer (no robot connection needed)
+- `detector_real_image.py` — standalone YOLO visualizer (no robot connection)
 
-**`DETECTION_MODE` env var** (set on operator PC, default `sim`):
-- `sim`: `get_detected_objects` queries `zmq_object_server.py` on port 5556 (Go2 simulation YOLO writes `detected_objects.json`)
-- `real`: `get_detected_objects` queries bridge on port 5555 via `get_detected_objects` command; `list_landmarks` also appends detected objects so agent can navigate to them by name
+**`DETECTION_MODE` flag** (CLI `--detection-mode` or env var, default `sim`):
+
+| | `sim` | `real` |
+|---|---|---|
+| `get_detected_objects` | port 5556 (`zmq_object_server`) | port 5555 bridge (`get_detected_objects` cmd) |
+| `get_current_detected_objects` | `/detected_objects` ROS topic | `_stored_objects` in-memory fallback |
+| `list_landmarks` | YAML only | YAML + detected objects from bridge |
+| `navigate_to_landmark("name")` | YAML only | YAML + bridge store fallback |
+| Robot processes needed | bridge + `zmq_object_server` | bridge + `bringup_with_zmq` + detector |
+
+**`robot_assistant.py` CLI args** (new — previously env-var only):
+```bash
+python robot_assistant.py --robot-ip 192.168.0.114 --robot-port 5555 --detection-mode real
+```
+Args are set as env vars before tools are imported, so tools pick them up correctly.
 
 ### Key Config Constants (nutri_rag/config.py)
 
@@ -203,8 +226,9 @@ Use `zmq_bridge_real/zmq_bridge_node_working_v2.py` for real robot deployment.
 - `nutri_graph/nutri_graph/models/gat_model.py` — GATv2 (4 node types, dual decoders)
 - `nutri-atlas/robot_control/robot_assistant.py` — Qwen Agent chat loop with tool dispatch
 - `nutri-atlas/robot_control/tools/navigate_tool.py` — landmark + detected-object navigation; merges YAML + bridge store when `DETECTION_MODE=real`
-- `nutri-atlas/robot_control/tools/object_tool.py` — `get_detected_objects` (sim: port 5556, real: port 5555) + `get_current_detected_objects`
-- `nutri-atlas/robot_control/tools/detector_node_real_world.py` — operator-side YOLO detector; press Enter to push detections to robot
+- `nutri-atlas/robot_control/tools/object_tool.py` — `get_detected_objects` (sim: port 5556, real: port 5555) + `get_current_detected_objects` + `forget_object`
+- `nutri-atlas/robot_control/tools/detector_node_real_world.py` — manual YOLO detector; press Enter to push detections to robot
+- `nutri-atlas/robot_control/tools/detector_node_real_world_auto.py` — auto YOLO detector; stability gate + spatial dedup; `--targets` + `--stable-conf` args
 - `nutri-atlas/robot_control/tools/image_receiver.py` — ZMQ SUB for RealSense color+depth streams
 - `nutri-atlas/robot_control/robot_side/zmq_bridge_real/zmq_bridge_node_working_v2.py` — ZMQ REP server (robot): navigate + spin/move + scan + update_objects + get_detected_objects
 - `nutri-atlas/robot_control/robot_side/zmq_bridge_real/zmq_object_server.py` — ZMQ REP server (robot, simulation only): serves persistent detected-objects map on port 5556
