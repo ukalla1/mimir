@@ -232,6 +232,10 @@ class ZMQBridgeNode(Node):
             self.get_logger().info(f'[{goal_id[:8]}] get_detected_objects')
             return self._handle_get_detected_objects(goal_id)
 
+        elif command_type == 'get_camera_pose':
+            self.get_logger().info(f'[{goal_id[:8]}] get_camera_pose')
+            return self._handle_get_camera_pose(goal_id)
+
         elif command_type == 'forget_object':
             frame_name = msg.get('frame_name', '')
             self.get_logger().info(f'[{goal_id[:8]}] forget_object {frame_name}')
@@ -588,6 +592,34 @@ class ZMQBridgeNode(Node):
             'frames':  published,
             'skipped': skipped,
             'message': f'Published {len(stamps)} TF frame(s), skipped {len(skipped)} duplicate(s)',
+        }
+
+    # ------------------------------------------------------------------
+    # get_camera_pose: return map→camera_link TF for client-side transform
+    # ------------------------------------------------------------------
+    def _handle_get_camera_pose(self, goal_id: str) -> dict:
+        try:
+            tf = self._tf_buffer.lookup_transform(
+                _MAP_FRAME, 'camera_link',
+                rclpy.time.Time(),
+                timeout=Duration(seconds=0.5),
+            )
+        except (LookupException, ConnectivityException, ExtrapolationException) as e:
+            return {
+                'goal_id': goal_id,
+                'status':  'failed',
+                'message': f'TF map→camera_link not available: {e}',
+            }
+
+        t = tf.transform.translation
+        q = tf.transform.rotation
+        R = _quat_to_rotation_matrix(q.x, q.y, q.z, q.w)
+
+        return {
+            'goal_id': goal_id,
+            'status':  'ok',
+            'translation': [t.x, t.y, t.z],
+            'rotation':    R,
         }
 
     # ------------------------------------------------------------------

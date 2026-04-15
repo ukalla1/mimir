@@ -1,9 +1,11 @@
 """
-Qwen Agent tool for on-demand YOLO object detection.
+Qwen Agent tools for on-demand YOLO object detection.
 
-Registers one tool:
-  - scan_objects : run YOLO on the current camera frame, compute 3D positions,
-                   and send detected objects to the robot as persistent landmarks.
+Two tools:
+  - scan_objects      : run YOLO on the current camera frame → temp memory only
+                        (non-destructive — does NOT persist to landmark history)
+  - register_objects  : multi-frame stability check + interest filter + spatial dedup
+                        → persist qualified objects to bridge as landmarks
 
 Heavy resources (YOLO model, ZMQ image subscribers, background frame threads) are
 initialised lazily on the first call and reused for all subsequent calls.
@@ -12,15 +14,17 @@ import json
 import os
 import threading
 import time
+from collections import defaultdict
 
 import cv2
 import json5
+import numpy as np
 from qwen_agent.tools.base import BaseTool, register_tool
 
 from .image_receiver import ImageReceiver
 from .zmq_client import ZMQNavClient
 from .detector_core import (
-    YOLODetector, FrameCache, fill_depth_3d,
+    YOLODetector, Detection, FrameCache, fill_depth_3d,
     DEFAULT_MODEL, DEFAULT_CONF, DEFAULT_IOU,
 )
 
@@ -30,10 +34,20 @@ _COLOR_PORT     = 5557
 _DEPTH_PORT     = 5558
 _NAV_TIMEOUT_MS = int(os.environ.get('NAV_TIMEOUT_MS', 10000))
 
+# Interest list — only these labels are eligible for registration.
+# Empty string = allow all labels.
+_INTEREST_OBJECTS = os.environ.get('INTEREST_OBJECTS', '')
+
 # Time to wait for frames on first init (seconds)
 _WARMUP_WAIT    = 2.0
 # How long to wait for a frame on each scan call (seconds)
 _FRAME_WAIT     = 1.0
+
+# Registration stability parameters
+_STABILITY_FRAMES   = 5      # number of YOLO scans
+_STABILITY_INTERVAL = 0.3    # seconds between scans
+_STABILITY_MIN_HITS = 3      # must appear in >= this many frames
+_DEDUP_DIST_M       = 0.5    # spatial dedup distance (metres)
 
 
 # ---------------------------------------------------------------------------
@@ -48,6 +62,9 @@ class _Scanner:
         self.cache      = FrameCache()
         self.zmq_client = ZMQNavClient(robot_ip=_ROBOT_IP, port=_ROBOT_PORT,
                                        timeout_ms=_NAV_TIMEOUT_MS)
+
+        # Temp memory: latest scan results (list of dicts with label, confidence, cam_x/y/z)
+        self.temp_objects: list[dict] = []
 
         # Start background frame receiver threads
         def _color_worker():
@@ -80,41 +97,27 @@ class _Scanner:
         time.sleep(_WARMUP_WAIT)
         print('[scan_objects] Ready.')
 
-    def scan(self, targets: set | None = None) -> dict:
-        """
-        Run one detection cycle on the current camera frame.
-
-        Args:
-            targets: if non-empty, only keep detections whose label is in this set.
-
-        Returns dict with:
-            status  : 'ok' | 'error'
-            objects : list of detected objects with labels and positions
-            frames  : list of newly registered TF frames (from bridge)
-            skipped : list of labels skipped by spatial dedup
-        """
-        # Wait up to _FRAME_WAIT for a frame
+    def _grab_frame(self):
+        """Wait up to _FRAME_WAIT for a camera frame. Returns (color, depth) or (None, None)."""
         deadline = time.monotonic() + _FRAME_WAIT
-        color_frame, depth_frame = None, None
         while time.monotonic() < deadline:
             color_frame, depth_frame = self.cache.get()
             if color_frame is not None:
-                break
+                return color_frame, depth_frame
             time.sleep(0.05)
+        return None, None
 
+    def _detect_once(self, targets: set | None = None):
+        """Run YOLO on current frame. Returns (qualified_detections, all_labels) or (None, None) on error."""
+        color_frame, depth_frame = self._grab_frame()
         if color_frame is None:
-            return {'status': 'error',
-                    'message': 'No camera frame available. Is the RealSense camera running?'}
+            return None, None
 
-        # Run YOLO
         bgr = (cv2.cvtColor(color_frame.data, cv2.COLOR_RGB2BGR)
                if color_frame.encoding == 'rgb8' else color_frame.data)
         dets = self.detector.detect(bgr)
-
-        # Fill depth + 3D positions
         fill_depth_3d(dets, color_frame, depth_frame)
 
-        # Filter: only keep detections with valid 3D, optionally by target label
         qualified = []
         for d in dets:
             if not d.has_3d:
@@ -123,35 +126,201 @@ class _Scanner:
                 continue
             qualified.append(d)
 
+        all_labels = [d.label for d in dets]
+        return qualified, all_labels
+
+    # ------------------------------------------------------------------
+    # Stage 1: scan (temp memory only, non-destructive)
+    # ------------------------------------------------------------------
+    def scan(self, targets: set | None = None) -> dict:
+        """
+        Run one detection cycle. Stores results in temp memory only.
+        Does NOT persist to the robot's landmark history.
+        """
+        qualified, all_labels = self._detect_once(targets)
+
+        if qualified is None:
+            self.temp_objects = []
+            return {'status': 'error',
+                    'message': 'No camera frame available. Is the RealSense camera running?'}
+
         if not qualified:
-            all_labels = [d.label for d in dets]
-            return {'status': 'ok', 'objects': [], 'frames': [], 'skipped': [],
+            self.temp_objects = []
+            return {'status': 'ok', 'objects': [],
                     'message': f'No objects with valid depth detected. '
                                f'Raw detections: {all_labels if all_labels else "none"}'}
 
-        # Build payload and send to bridge
-        objects = [{'label': d.label, 'cam_x': d.cam_x_m,
-                    'cam_y': d.cam_y_m, 'cam_z': d.cam_z_m}
-                   for d in qualified]
+        # Store in temp memory
+        self.temp_objects = [
+            {'label': d.label, 'confidence': round(d.confidence, 2),
+             'cam_x': d.cam_x_m, 'cam_y': d.cam_y_m, 'cam_z': d.cam_z_m}
+            for d in qualified
+        ]
 
-        print(f'[scan_objects] Sending {len(objects)} detection(s): '
-              f'{", ".join(o["label"] for o in objects)}')
-        reply = self.zmq_client.send_command('update_objects', objects=objects)
+        print(f'[scan_objects] Detected {len(self.temp_objects)} object(s) → temp memory: '
+              f'{", ".join(o["label"] for o in self.temp_objects)}')
+
+        return {
+            'status': 'ok',
+            'objects': [{'label': o['label'], 'confidence': o['confidence'],
+                         'cam_z_m': round(o['cam_z'], 2)}
+                        for o in self.temp_objects],
+            'note': 'Stored in temp memory only. Call register_objects to persist as landmarks.',
+        }
+
+    # ------------------------------------------------------------------
+    # Stage 2+3: register (stability check → interest filter → dedup → bridge)
+    # ------------------------------------------------------------------
+    def register(self, targets: set | None = None) -> dict:
+        """
+        Multi-frame stability check + interest filter + spatial dedup → persist to bridge.
+
+        Args:
+            targets: if non-empty, only register objects whose label is in this set.
+                     If empty/None, falls back to INTEREST_OBJECTS env var, then all labels.
+        """
+        # --- Determine interest filter ---
+        interest = targets
+        if not interest and _INTEREST_OBJECTS:
+            interest = {t.strip() for t in _INTEREST_OBJECTS.split(',') if t.strip()}
+
+        # --- Stage 2a: Multi-frame stability ---
+        print(f'[register_objects] Running {_STABILITY_FRAMES}-frame stability check...')
+        # Track: label → list of (cam_x, cam_y, cam_z) across frames
+        hits: dict[str, list[tuple[float, float, float]]] = defaultdict(list)
+
+        for i in range(_STABILITY_FRAMES):
+            if i > 0:
+                time.sleep(_STABILITY_INTERVAL)
+            qualified, _ = self._detect_once(targets=interest)
+            if qualified is None:
+                continue
+            for d in qualified:
+                hits[d.label].append((d.cam_x_m, d.cam_y_m, d.cam_z_m))
+
+        # Keep only labels seen in >= _STABILITY_MIN_HITS frames
+        stable = {}
+        for label, positions in hits.items():
+            if len(positions) >= _STABILITY_MIN_HITS:
+                # Average positions
+                arr = np.array(positions)
+                mean = arr.mean(axis=0)
+                stable[label] = {
+                    'label': label,
+                    'cam_x': float(mean[0]),
+                    'cam_y': float(mean[1]),
+                    'cam_z': float(mean[2]),
+                    'hit_count': len(positions),
+                }
+
+        unstable = [l for l, p in hits.items() if len(p) < _STABILITY_MIN_HITS]
+        if unstable:
+            print(f'[register_objects] Filtered out (unstable): {", ".join(unstable)}')
+
+        if not stable:
+            return {
+                'status': 'ok',
+                'registered': [],
+                'filtered_unstable': unstable,
+                'filtered_interest': [],
+                'skipped_dedup': [],
+                'message': 'No objects passed stability check.',
+            }
+
+        # --- Stage 2b: Interest filter ---
+        filtered_interest = []
+        if interest:
+            for label in list(stable.keys()):
+                if label not in interest:
+                    filtered_interest.append(label)
+                    del stable[label]
+                    print(f'[register_objects] Filtered out (not in interest list): {label}')
+
+        if not stable:
+            return {
+                'status': 'ok',
+                'registered': [],
+                'filtered_unstable': unstable,
+                'filtered_interest': filtered_interest,
+                'skipped_dedup': [],
+                'message': 'No objects matched the interest list.',
+            }
+
+        # --- Stage 2c: Spatial dedup against existing landmarks ---
+        # Get camera pose (map → camera_link TF) to transform detections to map frame
+        pose_reply = self.zmq_client.send_command('get_camera_pose')
+        if pose_reply.get('status') != 'ok':
+            # Can't transform — skip dedup, let bridge handle it in Stage 3
+            print(f'[register_objects] Warning: camera pose unavailable, skipping pre-dedup')
+            to_send = list(stable.values())
+            skipped_dedup = []
+        else:
+            tx, ty, tz = pose_reply['translation']
+            R = pose_reply['rotation']
+
+            # Bridge returns {frame_name: {"px": ..., "py": ..., "label": ...}, ...}
+            existing_reply = self.zmq_client.send_command('get_detected_objects')
+            existing_objects = existing_reply.get('objects', {})
+
+            skipped_dedup = []
+            to_send = []
+            for label, obj in stable.items():
+                # Transform camera-frame → map-frame
+                cx, cy, cz = obj['cam_x'], obj['cam_y'], obj['cam_z']
+                map_x = R[0][0]*cx + R[0][1]*cy + R[0][2]*cz + tx
+                map_y = R[1][0]*cx + R[1][1]*cy + R[1][2]*cz + ty
+
+                # Check distance to existing objects with same label (both in map frame)
+                dominated = False
+                for frame_name, ex in existing_objects.items():
+                    if not isinstance(ex, dict):
+                        continue
+                    if ex.get('label', '') != label:
+                        continue
+                    dx = ex.get('px', 0) - map_x
+                    dy = ex.get('py', 0) - map_y
+                    dist = (dx**2 + dy**2) ** 0.5
+                    if dist < _DEDUP_DIST_M:
+                        dominated = True
+                        break
+                if dominated:
+                    skipped_dedup.append(label)
+                    print(f'[register_objects] Skipped (already nearby): {label}')
+                else:
+                    to_send.append(obj)
+
+        if not to_send:
+            return {
+                'status': 'ok',
+                'registered': [],
+                'filtered_unstable': unstable,
+                'filtered_interest': filtered_interest,
+                'skipped_dedup': skipped_dedup,
+                'message': 'All stable objects already exist nearby.',
+            }
+
+        # --- Stage 3: Send to bridge ---
+        objects_payload = [{'label': o['label'], 'cam_x': o['cam_x'],
+                            'cam_y': o['cam_y'], 'cam_z': o['cam_z']}
+                           for o in to_send]
+
+        print(f'[register_objects] Sending {len(objects_payload)} object(s) to bridge: '
+              f'{", ".join(o["label"] for o in objects_payload)}')
+        reply = self.zmq_client.send_command('update_objects', objects=objects_payload)
 
         if reply.get('status') == 'success':
             frames  = reply.get('frames', [])
-            skipped = reply.get('skipped', [])
+            bridge_skipped = reply.get('skipped', [])
             for f in frames:
                 print(f'  → {f["frame"]:30s} map ({f["map_x"]:+.3f}, {f["map_y"]:+.3f})')
-            if skipped:
-                print(f'  ↷ skipped (already stored nearby): {", ".join(skipped)}')
+            if bridge_skipped:
+                print(f'  ↷ bridge skipped (spatial dedup): {", ".join(bridge_skipped)}')
             return {
                 'status': 'ok',
-                'objects': [{'label': d.label, 'confidence': round(d.confidence, 2),
-                             'cam_z_m': round(d.cam_z_m, 2)}
-                            for d in qualified],
-                'frames': frames,
-                'skipped': skipped,
+                'registered': frames,
+                'filtered_unstable': unstable,
+                'filtered_interest': filtered_interest,
+                'skipped_dedup': skipped_dedup + bridge_skipped,
             }
         else:
             return {'status': 'error', 'message': reply.get('message', 'Bridge error')}
@@ -171,16 +340,15 @@ def _get_scanner() -> _Scanner:
 
 
 # ---------------------------------------------------------------------------
-# Agent tool
+# Agent tools
 # ---------------------------------------------------------------------------
 @register_tool('scan_objects')
 class ScanObjects(BaseTool):
     description = (
         'Run YOLO object detection on the current camera frame. '
-        'Detects objects, computes their 3D positions, and registers them as '
-        'persistent landmarks on the robot. Returns newly detected objects and '
-        'any that were skipped (already known nearby). '
-        'Use this when asked to inspect, scan, or look for objects at the current location.'
+        'Detects objects and stores them in TEMP MEMORY only — does NOT persist '
+        'to landmark history. Use this to look at what is around without side effects. '
+        'Call register_objects afterwards to persist detected objects as landmarks.'
     )
     parameters = [
         {
@@ -202,4 +370,36 @@ class ScanObjects(BaseTool):
         print(f'[scan_objects] called  targets={targets or "all"}')
         scanner = _get_scanner()
         result = scanner.scan(targets=targets)
+        return json.dumps(result, ensure_ascii=False)
+
+
+@register_tool('register_objects')
+class RegisterObjects(BaseTool):
+    description = (
+        'Persist detected objects as permanent landmarks on the robot. '
+        'Runs a multi-frame stability check (5 scans), filters by interest list, '
+        'and deduplicates against existing landmarks before storing. '
+        'Only call this when the user asks to remember/save objects, or when actively '
+        'searching for a specific object to navigate to.'
+    )
+    parameters = [
+        {
+            'name': 'targets',
+            'type': 'string',
+            'description': (
+                'Comma-separated labels to register (e.g. "bottle,cup"). '
+                'Empty = use default interest list or register all.'
+            ),
+            'required': False,
+        },
+    ]
+
+    def call(self, params: str, **kwargs) -> str:
+        args = json5.loads(params) if params.strip() else {}
+        targets_str = args.get('targets', '').strip()
+        targets = {t.strip() for t in targets_str.split(',') if t.strip()} if targets_str else None
+
+        print(f'[register_objects] called  targets={targets or "default"}')
+        scanner = _get_scanner()
+        result = scanner.register(targets=targets)
         return json.dumps(result, ensure_ascii=False)

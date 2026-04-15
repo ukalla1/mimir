@@ -152,9 +152,9 @@ TOOL_DEFINITIONS = [
             'name': 'scan_objects',
             'description': (
                 'Run YOLO object detection on the current camera frame. '
-                'Detects objects, computes 3D positions, and registers them as persistent landmarks on the robot. '
-                'Returns the list of newly detected objects and any skipped (already known nearby). '
-                'Use this when asked to inspect, scan, or look for objects at the current location.'
+                'Detects objects and stores them in TEMP MEMORY only — does NOT persist to landmark history. '
+                'Use this to look at what is around without side effects. '
+                'Call register_objects afterwards to persist detected objects as landmarks.'
             ),
             'parameters': {
                 'type': 'object',
@@ -162,6 +162,28 @@ TOOL_DEFINITIONS = [
                     'targets': {
                         'type': 'string',
                         'description': 'Comma-separated labels to look for (e.g. "bottle,cup"). Empty = detect all.',
+                    },
+                },
+            },
+        },
+    },
+    {
+        'type': 'function',
+        'function': {
+            'name': 'register_objects',
+            'description': (
+                'Persist detected objects as permanent landmarks on the robot. '
+                'Runs a multi-frame stability check (5 scans), filters by interest list, '
+                'and deduplicates against existing landmarks before storing. '
+                'Only call this when the user asks to remember/save objects, or when actively '
+                'searching for a specific object to navigate to.'
+            ),
+            'parameters': {
+                'type': 'object',
+                'properties': {
+                    'targets': {
+                        'type': 'string',
+                        'description': 'Comma-separated labels to register (e.g. "bottle,cup"). Empty = use default interest list or register all.',
                     },
                 },
             },
@@ -240,20 +262,27 @@ SYSTEM_MSG = {
         '- spin_robot: rotate in place in degrees (positive=CCW, negative=CW).\n'
         '- get_detected_objects: persistent map of all ever-detected objects (accumulates across sessions). Call fresh every time.\n'
         '- get_current_detected_objects: objects visible RIGHT NOW (no stale entries). Call this to answer "what can you see" — do NOT spin first.\n'
-        '- forget_object: remove a stale or incorrect detected object from the persistent map by its frame name.\n'
-        '- scan_objects: run YOLO detection on the current camera frame. Detects objects, computes 3D positions, and registers them as persistent landmarks. Returns what was found and what was skipped (already known). Use this to actively look for objects.\n\n'
+        '- forget_object: remove a stale or incorrect detected object from the persistent map by its frame name.\n\n'
+        'Detection (2-step: scan → register):\n'
+        '- scan_objects: run YOLO detection on the current camera frame. Stores results in TEMP MEMORY only — does NOT persist. Use this to look around without side effects.\n'
+        '- register_objects: persist detected objects as permanent landmarks. Runs 5-frame stability check, interest filter, and spatial dedup before storing. Only call when user asks to remember/save, or when actively searching for a specific object.\n\n'
         'Nutrition:\n'
         '- get_meal_recommendation: given what the user has eaten, recommend what to eat next based on nutritional gap analysis.\n\n'
         'Scanning rules:\n'
-        '- "what can you see" / "what do you see" → call get_current_detected_objects ONLY. No spinning, no scanning.\n'
-        '- "inspect" / "scan" / "look for X" → call scan_objects (optionally with targets).\n'
-        '- "explore" / "look around" / "do a 360" → do a full 360° scan: spin 90° then scan_objects, repeat 4 times. After the scan, STOP and report what you found. Do NOT navigate to any detected objects unless the user explicitly asks.\n'
+        '- "what can you see" / "what do you see" → call scan_objects. Returns temp detections, does NOT store anything.\n'
+        '- "inspect" / "scan" → call scan_objects. Report findings to user.\n'
+        '- "explore" / "look around" / "do a 360" → spin 90° + scan_objects, repeat 4 times. Report findings. Do NOT navigate or register.\n'
+        '- "remember this" / "save these objects" → call register_objects to persist stable detections as landmarks.\n'
         '- "rotate X degrees" / "turn left/right" → call spin_robot only.\n\n'
-        'IMPORTANT: Never navigate to an object unless the user explicitly asks you to go there. Exploring and scanning only detect and register objects — they do NOT trigger navigation.\n\n'
+        'IMPORTANT:\n'
+        '- scan_objects is non-destructive — it only looks, never stores to landmark history.\n'
+        '- register_objects is the ONLY way to add detected objects to landmark history.\n'
+        '- Never call register_objects unless the user asks to remember/save objects, or you are explicitly searching for a specific object.\n'
+        '- Never navigate to an object unless the user explicitly asks you to go there.\n\n'
         'To find a specific object (only when user asks "find X" or "go to X"):\n'
         '1. Call get_detected_objects — if found, navigate to its coordinates directly.\n'
-        '2. If not found, call scan_objects at the current location to look for it.\n'
-        '3. If still not found, do a 360° explore (spin 90° + scan_objects, repeat 4 times).\n'
+        '2. If not found, call register_objects(targets="X") at current location — scans, validates, and stores in one step.\n'
+        '3. If still not found, do a 360° explore: spin 90° + register_objects(targets="X"), repeat 4 times.\n'
         '4. If still not found, navigate to the next landmark and repeat from step 2.\n'
         '5. If all landmarks exhausted, report the object as not found.\n\n'
         'For nutrition questions (e.g. "I ate X, what should I eat for lunch?"), '
@@ -330,7 +359,7 @@ def main():
     from tools.navigate_tool import NavigateToLandmark, ListLandmarks
     from tools.object_tool import GetDetectedObjects, GetCurrentDetectedObjects, ForgetObject
     from tools.motion_tool import SpinRobot
-    from tools.detect_tool import ScanObjects
+    from tools.detect_tool import ScanObjects, RegisterObjects
     from tools.nutrition_tool import GetMealRecommendation
 
     llm = get_chat_model({
@@ -349,6 +378,7 @@ def main():
         'get_current_detected_objects': GetCurrentDetectedObjects(),
         'forget_object':                ForgetObject(),
         'scan_objects':                 ScanObjects(),
+        'register_objects':             RegisterObjects(),
         'get_meal_recommendation':      GetMealRecommendation(),
     }
 
