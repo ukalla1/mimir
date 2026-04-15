@@ -9,22 +9,27 @@ landmarks:
     y: 7.94
     description: "Playground that have a large free space for the robot to move around"
 
-  Boxun Desk:
+  Workspace 1:
     x: 0.94
     y: 1.83
-    description: "Boxun Desk"
+    description: "Workspace 1 where Boxun, Chang and Rithvik sitting"
 
-  Uttej Desk:
+  Workspace 2:
     x: -2.00
     y: 1.70
-    description: "Uttej Desk"
+    description: "Workspace 2 where Uttej and Miki sitting"
 
-  Front Door:
-    x: -10.72
-    y: 2.82
-    description: "Front door area"
+  Reception:
+    x: -10.7
+    y: 1.8
+    description: "Reception place, where the front door located"
 
   Kitchen:
     x: -14.36
     y: 10.73
-    description: "Kitchen area"
+    description: "Kitchen area, where may have some foods and drinks"
+  
+  Meeting Room:
+    x: -6.96
+    y: 2.12
+    description: "Our large meeting room"

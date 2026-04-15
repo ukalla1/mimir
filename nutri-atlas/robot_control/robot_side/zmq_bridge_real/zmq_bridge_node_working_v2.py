@@ -96,7 +96,9 @@ def _save_detected_objects(path: str, objects: dict):
 
 # P-controller limits
 _MAX_VYAW = 0.8   # rad/s
+_MIN_VYAW = 0.15  # rad/s — minimum to overcome friction/motor deadband
 _MAX_VX   = 0.5   # m/s
+_MIN_VX   = 0.1   # m/s — minimum to overcome friction/motor deadband
 
 # Motion timeouts
 _SPIN_TIMEOUT = 30.0   # seconds
@@ -353,7 +355,12 @@ class ZMQBridgeNode(Node):
                 if abs(err) < self._spin_threshold:
                     break
 
-                vyaw = max(-_MAX_VYAW, min(_MAX_VYAW, self._spin_kp * err))
+                vyaw = self._spin_kp * err
+                # Apply minimum velocity to overcome friction/motor deadband
+                if vyaw > 0:
+                    vyaw = max(_MIN_VYAW, min(_MAX_VYAW, vyaw))
+                else:
+                    vyaw = max(-_MAX_VYAW, min(-_MIN_VYAW, vyaw))
                 self._publish_cmd_vel(linear_x=0.0, angular_z=vyaw)
                 time.sleep(dt)
         finally:
@@ -396,7 +403,12 @@ class ZMQBridgeNode(Node):
                 if abs(err) < self._move_threshold:
                     break
 
-                vx = max(-_MAX_VX, min(_MAX_VX, self._move_kp * err))
+                vx = self._move_kp * err
+                # Apply minimum velocity to overcome friction/motor deadband
+                if vx > 0:
+                    vx = max(_MIN_VX, min(_MAX_VX, vx))
+                else:
+                    vx = max(-_MAX_VX, min(-_MIN_VX, vx))
                 self._publish_cmd_vel(linear_x=vx, angular_z=0.0)
                 time.sleep(dt)
         finally:

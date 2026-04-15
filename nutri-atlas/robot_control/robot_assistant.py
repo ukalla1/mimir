@@ -149,6 +149,27 @@ TOOL_DEFINITIONS = [
     {
         'type': 'function',
         'function': {
+            'name': 'scan_objects',
+            'description': (
+                'Run YOLO object detection on the current camera frame. '
+                'Detects objects, computes 3D positions, and registers them as persistent landmarks on the robot. '
+                'Returns the list of newly detected objects and any skipped (already known nearby). '
+                'Use this when asked to inspect, scan, or look for objects at the current location.'
+            ),
+            'parameters': {
+                'type': 'object',
+                'properties': {
+                    'targets': {
+                        'type': 'string',
+                        'description': 'Comma-separated labels to look for (e.g. "bottle,cup"). Empty = detect all.',
+                    },
+                },
+            },
+        },
+    },
+    {
+        'type': 'function',
+        'function': {
             'name': 'get_meal_recommendation',
             'description': (
                 'Get a personalized meal recommendation based on what the user has eaten. '
@@ -219,18 +240,21 @@ SYSTEM_MSG = {
         '- spin_robot: rotate in place in degrees (positive=CCW, negative=CW).\n'
         '- get_detected_objects: persistent map of all ever-detected objects (accumulates across sessions). Call fresh every time.\n'
         '- get_current_detected_objects: objects visible RIGHT NOW (no stale entries). Call this to answer "what can you see" — do NOT spin first.\n'
-        '- forget_object: remove a stale or incorrect detected object from the persistent map by its frame name.\n\n'
+        '- forget_object: remove a stale or incorrect detected object from the persistent map by its frame name.\n'
+        '- scan_objects: run YOLO detection on the current camera frame. Detects objects, computes 3D positions, and registers them as persistent landmarks. Returns what was found and what was skipped (already known). Use this to actively look for objects.\n\n'
         'Nutrition:\n'
         '- get_meal_recommendation: given what the user has eaten, recommend what to eat next based on nutritional gap analysis.\n\n'
-        'Spinning rules — only spin when the user explicitly asks to rotate, explore, inspect, or scan:\n'
-        '- "what can you see" / "what do you see" → call get_current_detected_objects ONLY, no spinning.\n'
-        '- "explore", "inspect", "scan", "look around", "do a 360" → do a full 360° scan: spin 120° then get_current_detected_objects, repeat 3 times.\n'
+        'Scanning rules:\n'
+        '- "what can you see" / "what do you see" → call get_current_detected_objects ONLY. No spinning, no scanning.\n'
+        '- "inspect" / "scan" / "look for X" → call scan_objects (optionally with targets).\n'
+        '- "explore" / "look around" / "do a 360" → do a full 360° scan: spin 90° then scan_objects, repeat 4 times. After the scan, STOP and report what you found. Do NOT navigate to any detected objects unless the user explicitly asks.\n'
         '- "rotate X degrees" / "turn left/right" → call spin_robot only.\n\n'
-        'To find an object:\n'
+        'IMPORTANT: Never navigate to an object unless the user explicitly asks you to go there. Exploring and scanning only detect and register objects — they do NOT trigger navigation.\n\n'
+        'To find a specific object (only when user asks "find X" or "go to X"):\n'
         '1. Call get_detected_objects — if found, navigate to its coordinates directly.\n'
-        '2. If not found, ask the user if they want to explore the current location before scanning.\n'
-        '3. If exploring: do the 3-spin scan, then check get_current_detected_objects after each spin.\n'
-        '4. If still not found, navigate to the next landmark and repeat from step 3.\n'
+        '2. If not found, call scan_objects at the current location to look for it.\n'
+        '3. If still not found, do a 360° explore (spin 90° + scan_objects, repeat 4 times).\n'
+        '4. If still not found, navigate to the next landmark and repeat from step 2.\n'
         '5. If all landmarks exhausted, report the object as not found.\n\n'
         'For nutrition questions (e.g. "I ate X, what should I eat for lunch?"), '
         'use get_meal_recommendation with the foods the user described.\n\n'
@@ -306,6 +330,7 @@ def main():
     from tools.navigate_tool import NavigateToLandmark, ListLandmarks
     from tools.object_tool import GetDetectedObjects, GetCurrentDetectedObjects, ForgetObject
     from tools.motion_tool import SpinRobot
+    from tools.detect_tool import ScanObjects
     from tools.nutrition_tool import GetMealRecommendation
 
     llm = get_chat_model({
@@ -323,6 +348,7 @@ def main():
         'spin_robot':                   SpinRobot(),
         'get_current_detected_objects': GetCurrentDetectedObjects(),
         'forget_object':                ForgetObject(),
+        'scan_objects':                 ScanObjects(),
         'get_meal_recommendation':      GetMealRecommendation(),
     }
 
