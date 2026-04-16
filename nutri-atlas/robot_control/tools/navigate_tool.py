@@ -28,11 +28,13 @@ _client = ZMQNavClient(robot_ip=_ROBOT_IP, port=_ROBOT_PORT, timeout_ms=_NAV_TIM
 @register_tool('navigate_to_landmark')
 class NavigateToLandmark(BaseTool):
     description = (
-        'Navigate the robot to a position in the map. Two use cases: '
-        '(1) Named landmark — provide landmark_name and the position is looked up automatically; '
-        'use list_landmarks first if unsure of available names. '
-        '(2) Detected object — call get_detected_objects first to find the object\'s position (px, py), '
-        'then call this tool with x and y directly, omitting landmark_name.'
+        'Navigate the robot to a position in the map — PURE navigation, no observation. '
+        'DO NOT use this tool if the user mentions looking, scanning, detecting, checking, '
+        'observing, or remembering objects during the trip — use navigate_and_scan instead. '
+        'Use this tool ONLY when the user just wants to travel to a place. '
+        'Two inputs: (1) landmark_name (looked up via list_landmarks); '
+        '(2) x, y coordinates directly (for a previously detected object — '
+        'call get_detected_objects first to find (px, py)).'
     )
     parameters = [
         {

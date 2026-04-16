@@ -105,6 +105,12 @@ _SPIN_TIMEOUT = 30.0   # seconds
 _MOVE_TIMEOUT = 30.0   # seconds
 _NAV_TIMEOUT = 120.0   # seconds
 
+# Post-nav arrival check: Nav2 sometimes returns STATUS_SUCCEEDED when the
+# robot is already within xy_goal_tolerance of the goal without actually moving
+# (common for detected-object positions computed near the current pose).
+# Verify map->base distance after success; flip to 'failed' if too far.
+_ARRIVAL_THRESHOLD_M = 0.5
+
 # cmd_vel publish rate during spin/move
 _CTRL_HZ = 20.0
 
@@ -164,6 +170,15 @@ class ZMQBridgeNode(Node):
         self._stored_objects      = {}
         self._stored_objects_lock = threading.Lock()
         self.create_subscription(String, '/detected_objects', self._detections_callback, 10)
+
+        # --- Async navigation state (for start_navigate / check_nav_status) ---
+        self._nav_goal_handle   = None   # active Nav2 goal handle
+        self._nav_goal_id       = None   # ZMQ goal_id for the active navigation
+        self._nav_result_future = None   # async future for Nav2 result
+        self._nav_target_desc   = ''     # human-readable target description
+        self._nav_target_x      = 0.0    # map x of the active goal (for arrival check)
+        self._nav_target_y      = 0.0    # map y of the active goal (for arrival check)
+        self._nav_lock          = threading.Lock()
 
         # --- ZMQ REP socket ---
         self._ctx  = zmq.Context()
@@ -236,6 +251,24 @@ class ZMQBridgeNode(Node):
             self.get_logger().info(f'[{goal_id[:8]}] get_camera_pose')
             return self._handle_get_camera_pose(goal_id)
 
+        elif command_type == 'start_navigate':
+            gx, gy = float(msg.get('x', 0)), float(msg.get('y', 0))
+            self.get_logger().info(
+                f'[{goal_id[:8]}] start_navigate landmark={msg.get("landmark")} x={gx:.2f} y={gy:.2f}')
+            return self._handle_start_navigate(goal_id, gx, gy, msg.get('landmark', ''))
+
+        elif command_type == 'check_nav_status':
+            return self._handle_check_nav_status(goal_id)
+
+        elif command_type == 'cancel_navigate':
+            self.get_logger().info(f'[{goal_id[:8]}] cancel_navigate')
+            return self._handle_cancel_navigate(goal_id)
+
+        elif command_type == 'update_objects_map':
+            objects = msg.get('objects', [])
+            self.get_logger().info(f'[{goal_id[:8]}] update_objects_map ({len(objects)} objects)')
+            return self._handle_update_objects_map(goal_id, objects)
+
         elif command_type == 'forget_object':
             frame_name = msg.get('frame_name', '')
             self.get_logger().info(f'[{goal_id[:8]}] forget_object {frame_name}')
@@ -258,6 +291,15 @@ class ZMQBridgeNode(Node):
     # ------------------------------------------------------------------
     # Navigate: call Nav2 action /navigate_to_pose and wait for result.
     # ------------------------------------------------------------------
+    def _verify_arrival(self, tx, ty):
+        """Return (arrived, distance_m). arrived=False if pose unavailable."""
+        pose = self._get_pose_full()
+        if pose is None:
+            return False, float('inf')
+        px, py, _pz, _yaw = pose
+        dist = math.hypot(px - tx, py - ty)
+        return dist <= _ARRIVAL_THRESHOLD_M, dist
+
     def _handle_navigate(self, goal_id: str, x: float, y: float, landmark: str) -> dict:
         target = landmark if landmark else f'({x:.2f}, {y:.2f})'
         if not self._nav_client.wait_for_server(timeout_sec=2.0):
@@ -306,10 +348,22 @@ class ZMQBridgeNode(Node):
 
         status = result_msg.status
         if status == GoalStatus.STATUS_SUCCEEDED:
+            arrived, dist = self._verify_arrival(x, y)
+            if not arrived:
+                self.get_logger().warn(
+                    f'[{goal_id[:8]}] Nav2 SUCCEEDED but robot is {dist:.2f} m '
+                    f'from {target} (threshold {_ARRIVAL_THRESHOLD_M} m)')
+                return {
+                    'goal_id': goal_id,
+                    'status': 'failed',
+                    'message': (f'Nav2 reported success but robot is {dist:.2f} m '
+                                f'from {target} — likely within goal tolerance of current pose '
+                                f'or stale localization. Not actually arrived.'),
+                }
             return {
                 'goal_id': goal_id,
                 'status': 'success',
-                'message': f'Arrived at {target} (x={x:.2f}, y={y:.2f})',
+                'message': f'Arrived at {target} (x={x:.2f}, y={y:.2f}, dist={dist:.2f} m)',
             }
         if status == GoalStatus.STATUS_CANCELED:
             return {
@@ -327,6 +381,242 @@ class ZMQBridgeNode(Node):
             'goal_id': goal_id,
             'status': 'failed',
             'message': f'Navigation ended with unexpected status={status}',
+        }
+
+    # ------------------------------------------------------------------
+    # Async navigate: start_navigate / check_nav_status / cancel_navigate
+    # ------------------------------------------------------------------
+    def _reap_finished_nav(self) -> None:
+        """Auto-clear nav state if the stored goal's result future is already done.
+
+        Guards against the case where a client stops polling check_nav_status
+        before the nav actually finishes (e.g. ZMQ timeout, client crash) —
+        otherwise _nav_goal_handle would leak forever and every subsequent
+        start_navigate would be rejected with 'Navigation already in progress'.
+        """
+        with self._nav_lock:
+            if self._nav_goal_handle is None or self._nav_result_future is None:
+                return
+            if not self._nav_result_future.done():
+                return
+            # Drain result so rclpy doesn't log "future destroyed with result not taken"
+            try:
+                self._nav_result_future.result()
+            except Exception:
+                pass
+            self.get_logger().info(
+                f'Auto-reaped finished nav (target={self._nav_target_desc!r})')
+            self._nav_goal_handle   = None
+            self._nav_goal_id       = None
+            self._nav_result_future = None
+            self._nav_target_desc   = ''
+            self._nav_target_x      = 0.0
+            self._nav_target_y      = 0.0
+
+    def _handle_start_navigate(self, goal_id: str, x: float, y: float, landmark: str) -> dict:
+        """Start Nav2 goal and return immediately. Use check_nav_status to poll."""
+        # Self-heal: clear stale state from a previous nav whose client stopped polling.
+        self._reap_finished_nav()
+        with self._nav_lock:
+            if self._nav_goal_handle is not None:
+                return {
+                    'goal_id': goal_id,
+                    'status': 'failed',
+                    'message': 'Navigation already in progress. Call check_nav_status or cancel_navigate first.',
+                }
+
+        target = landmark if landmark else f'({x:.2f}, {y:.2f})'
+        if not self._nav_client.wait_for_server(timeout_sec=2.0):
+            return {
+                'goal_id': goal_id,
+                'status': 'failed',
+                'message': 'Nav2 action server /navigate_to_pose is not available',
+            }
+
+        goal = NavigateToPose.Goal()
+        goal.pose.header.stamp = self.get_clock().now().to_msg()
+        goal.pose.header.frame_id = _MAP_FRAME
+        goal.pose.pose.position.x = x
+        goal.pose.pose.position.y = y
+        goal.pose.pose.position.z = 0.0
+        goal.pose.pose.orientation.w = 1.0
+
+        send_future = self._nav_client.send_goal_async(goal)
+        # Wait only for goal acceptance (fast, ~1-2s)
+        goal_handle, err = self._wait_future(send_future, 5.0)
+        if err is not None:
+            return {
+                'goal_id': goal_id,
+                'status': 'failed',
+                'message': f'Nav2 goal send timed out',
+            }
+
+        if not goal_handle.accepted:
+            return {
+                'goal_id': goal_id,
+                'status': 'failed',
+                'message': f'Nav2 rejected goal for {target}',
+            }
+
+        # Store state and return immediately
+        with self._nav_lock:
+            self._nav_goal_handle   = goal_handle
+            self._nav_goal_id       = goal_id
+            self._nav_result_future = goal_handle.get_result_async()
+            self._nav_target_desc   = target
+            self._nav_target_x      = x
+            self._nav_target_y      = y
+
+        self.get_logger().info(f'[{goal_id[:8]}] Navigation started to {target}')
+        return {
+            'goal_id': goal_id,
+            'status': 'started',
+            'message': f'Navigation started to {target} (x={x:.2f}, y={y:.2f})',
+        }
+
+    def _handle_check_nav_status(self, goal_id: str) -> dict:
+        """Poll whether the async navigation has finished."""
+        with self._nav_lock:
+            if self._nav_goal_handle is None:
+                return {'goal_id': goal_id, 'status': 'idle', 'message': 'No active navigation'}
+
+            if not self._nav_result_future.done():
+                return {'goal_id': goal_id, 'status': 'navigating',
+                        'message': f'Still navigating to {self._nav_target_desc}'}
+
+            # Navigation finished — read result and clear state
+            result_msg = self._nav_result_future.result()
+            target = self._nav_target_desc
+            tx, ty = self._nav_target_x, self._nav_target_y
+            self._nav_goal_handle   = None
+            self._nav_goal_id       = None
+            self._nav_result_future = None
+            self._nav_target_desc   = ''
+            self._nav_target_x      = 0.0
+            self._nav_target_y      = 0.0
+
+        status = result_msg.status
+        if status == GoalStatus.STATUS_SUCCEEDED:
+            arrived, dist = self._verify_arrival(tx, ty)
+            if not arrived:
+                self.get_logger().warn(
+                    f'[{goal_id[:8]}] Nav2 SUCCEEDED but robot is {dist:.2f} m '
+                    f'from {target} (threshold {_ARRIVAL_THRESHOLD_M} m)')
+                return {
+                    'goal_id': goal_id, 'status': 'failed',
+                    'message': (f'Nav2 reported success but robot is {dist:.2f} m '
+                                f'from {target} — likely within goal tolerance of current pose '
+                                f'or stale localization. Not actually arrived.'),
+                }
+            return {'goal_id': goal_id, 'status': 'success',
+                    'message': f'Arrived at {target} (dist={dist:.2f} m)'}
+        if status == GoalStatus.STATUS_CANCELED:
+            return {'goal_id': goal_id, 'status': 'canceled',
+                    'message': f'Navigation canceled before reaching {target}'}
+        if status == GoalStatus.STATUS_ABORTED:
+            return {'goal_id': goal_id, 'status': 'failed',
+                    'message': f'Navigation aborted by Nav2 for {target}'}
+        return {'goal_id': goal_id, 'status': 'failed',
+                'message': f'Navigation ended with unexpected status={status}'}
+
+    def _handle_cancel_navigate(self, goal_id: str) -> dict:
+        """Cancel the active async navigation."""
+        with self._nav_lock:
+            if self._nav_goal_handle is None:
+                return {'goal_id': goal_id, 'status': 'ok',
+                        'message': 'No active navigation to cancel'}
+            self._nav_goal_handle.cancel_goal_async()
+            self._nav_goal_handle   = None
+            self._nav_goal_id       = None
+            self._nav_result_future = None
+            self._nav_target_desc   = ''
+            self._nav_target_x      = 0.0
+            self._nav_target_y      = 0.0
+        self.get_logger().info(f'[{goal_id[:8]}] Navigation canceled')
+        return {'goal_id': goal_id, 'status': 'ok', 'message': 'Navigation canceled'}
+
+    # ------------------------------------------------------------------
+    # update_objects_map: like update_objects but positions are already in map frame
+    # ------------------------------------------------------------------
+    def _handle_update_objects_map(self, goal_id: str, objects: list) -> dict:
+        """
+        Register detected objects with map-frame coordinates directly.
+        Skips TF camera→map transform (positions already transformed client-side).
+        Still does spatial dedup, TF broadcast, and JSON persist.
+        """
+        stamps         = []
+        published      = []
+        skipped        = []
+        label_counts   = {}
+
+        existing = _load_detected_objects(_DETECTED_OBJECTS_FILE)
+
+        for obj in objects:
+            label = str(obj.get('label', 'object')).replace(' ', '_')
+            mx    = float(obj.get('map_x', 0.0))
+            my    = float(obj.get('map_y', 0.0))
+
+            # Spatial dedup
+            too_close = False
+            for entry in existing.values():
+                if entry.get('label') == label:
+                    dx = entry['px'] - mx
+                    dy = entry['py'] - my
+                    if math.hypot(dx, dy) < _SPATIAL_THRESHOLD:
+                        too_close = True
+                        break
+            if too_close:
+                skipped.append(label)
+                continue
+
+            idx = label_counts.get(label, 0)
+            label_counts[label] = idx + 1
+            while f'detected_{label}_{idx}' in existing:
+                idx += 1
+            label_counts[label] = idx + 1
+            frame_name = f'detected_{label}_{idx}'
+
+            ts = TransformStamped()
+            ts.header.stamp    = self.get_clock().now().to_msg()
+            ts.header.frame_id = _MAP_FRAME
+            ts.child_frame_id  = frame_name
+            ts.transform.translation.x = mx
+            ts.transform.translation.y = my
+            ts.transform.translation.z = 0.0
+            ts.transform.rotation.w    = 1.0
+
+            stamps.append(ts)
+            published.append({
+                'frame': frame_name,
+                'map_x': round(mx, 3),
+                'map_y': round(my, 3),
+                'label': label,
+            })
+            self.get_logger().info(f'  {frame_name} → map ({mx:.3f}, {my:.3f})')
+
+        if skipped:
+            self.get_logger().info(f'  skipped (spatial dedup): {", ".join(skipped)}')
+
+        if stamps:
+            self._obj_tf_broadcaster.sendTransform(stamps)
+
+        new_store = {
+            entry['frame']: {'px': entry['map_x'], 'py': entry['map_y'], 'label': entry['label']}
+            for entry in published
+        }
+        with self._stored_objects_lock:
+            self._stored_objects = new_store
+
+        if new_store:
+            existing.update(new_store)
+            _save_detected_objects(_DETECTED_OBJECTS_FILE, existing)
+
+        return {
+            'goal_id': goal_id,
+            'status':  'success',
+            'frames':  published,
+            'skipped': skipped,
+            'message': f'Published {len(stamps)} TF frame(s), skipped {len(skipped)} duplicate(s)',
         }
 
     # ------------------------------------------------------------------

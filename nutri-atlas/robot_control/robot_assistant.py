@@ -41,27 +41,10 @@ TOOL_DEFINITIONS = [
         'function': {
             'name': 'get_detected_objects',
             'description': (
-                'Return the full map of objects currently detected by the robot camera. '
-                'Each entry contains the object name and its estimated position. '
-                'The list updates in real time, but only while the robot is moving — '
-                'if the list is not changing, the robot has either stopped or has fully explored the environment. '
-                'Call this periodically after each movement to check whether a target object has appeared.'
-            ),
-            'parameters': {
-                'type': 'object',
-                'properties': {},
-            },
-        },
-    },
-    {
-        'type': 'function',
-        'function': {
-            'name': 'get_current_detected_objects',
-            'description': (
-                'Return only the objects the robot camera is detecting RIGHT NOW, '
-                'filtered by how recently they were last seen. '
-                'Unlike get_detected_objects, this excludes stale entries from earlier exploration. '
-                'Use this to confirm what is currently visible before making a navigation decision.'
+                'Return the persistent landmark history stored on the robot. '
+                'Each entry contains the object name and its map-frame position. '
+                'This only changes after register_objects is called. '
+                'Call this to check whether a target object has been previously registered.'
             ),
             'parameters': {
                 'type': 'object',
@@ -173,8 +156,9 @@ TOOL_DEFINITIONS = [
             'name': 'register_objects',
             'description': (
                 'Persist detected objects as permanent landmarks on the robot. '
-                'Runs a multi-frame stability check (5 scans), filters by interest list, '
-                'and deduplicates against existing landmarks before storing. '
+                'If navigate_and_scan just accumulated detections, this call drains that temp '
+                'memory (map-frame positions, deduplicated against existing landmarks). '
+                'Otherwise it runs a fresh 1-frame scan at the current camera pose. '
                 'Only call this when the user asks to remember/save objects, or when actively '
                 'searching for a specific object to navigate to.'
             ),
@@ -222,13 +206,52 @@ TOOL_DEFINITIONS = [
     {
         'type': 'function',
         'function': {
+            'name': 'navigate_and_scan',
+            'description': (
+                'Navigate to a destination WHILE running YOLO detection along the way. '
+                'USE THIS (not navigate_to_landmark) whenever the user combines navigation '
+                'with any observation intent, e.g. "go to X and look for objects", '
+                '"navigate to X and detect", "on the way / along the way / in your way '
+                'find/look for/scan/detect/remember anything", "as you move observe", '
+                '"go to X and see what\'s there". '
+                'Detections are stored in temp memory with map-frame positions. After arrival, '
+                'call register_objects to persist them.'
+            ),
+            'parameters': {
+                'type': 'object',
+                'properties': {
+                    'landmark_name': {
+                        'type': 'string',
+                        'description': 'Destination landmark name (e.g. "kitchen", "hallway").',
+                    },
+                    'x': {
+                        'type': 'number',
+                        'description': 'Map x coordinate. Use when navigating by coordinates.',
+                    },
+                    'y': {
+                        'type': 'number',
+                        'description': 'Map y coordinate. Use when navigating by coordinates.',
+                    },
+                    'targets': {
+                        'type': 'string',
+                        'description': 'Comma-separated labels to detect (e.g. "bottle,cup"). Empty = detect all.',
+                    },
+                },
+            },
+        },
+    },
+    {
+        'type': 'function',
+        'function': {
             'name': 'navigate_to_landmark',
             'description': (
-                'Navigate the robot to a position in the map. Two use cases: '
-                '(1) Named landmark — provide landmark_name and the position is looked up automatically; '
-                'use list_landmarks first if unsure of available names. '
-                '(2) Detected object — call get_detected_objects first to find the object\'s position (px, py), '
-                'then call this tool with x and y directly, omitting landmark_name.'
+                'Navigate the robot to a position in the map — PURE navigation, no observation. '
+                'DO NOT use this tool if the user mentions looking, scanning, detecting, checking, '
+                'observing, or remembering objects during the trip — use navigate_and_scan instead. '
+                'Use this tool ONLY when the user just wants to travel to a place. '
+                'Two inputs: (1) landmark_name (looked up via list_landmarks); '
+                '(2) x, y coordinates directly (for a previously detected object — '
+                'call get_detected_objects first to find (px, py)).'
             ),
             'parameters': {
                 'type': 'object',
@@ -255,40 +278,58 @@ TOOL_DEFINITIONS = [
 SYSTEM_MSG = {
     'role': 'system',
     'content': (
-        'You are a robot assistant that can navigate and provide nutritional advice. You have these tools:\n\n'
-        'Navigation:\n'
-        '- list_landmarks: list ALL navigable locations — both fixed landmarks AND recently detected objects. Always call this fresh; never answer from memory.\n'
-        '- navigate_to_landmark: go to a named landmark (landmark_name), or directly to coordinates (x, y) from a detected object.\n'
-        '- spin_robot: rotate in place in degrees (positive=CCW, negative=CW).\n'
-        '- get_detected_objects: persistent map of all ever-detected objects (accumulates across sessions). Call fresh every time.\n'
-        '- get_current_detected_objects: objects visible RIGHT NOW (no stale entries). Call this to answer "what can you see" — do NOT spin first.\n'
-        '- forget_object: remove a stale or incorrect detected object from the persistent map by its frame name.\n\n'
-        'Detection (2-step: scan → register):\n'
-        '- scan_objects: run YOLO detection on the current camera frame. Stores results in TEMP MEMORY only — does NOT persist. Use this to look around without side effects.\n'
-        '- register_objects: persist detected objects as permanent landmarks. Runs 5-frame stability check, interest filter, and spatial dedup before storing. Only call when user asks to remember/save, or when actively searching for a specific object.\n\n'
-        'Nutrition:\n'
-        '- get_meal_recommendation: given what the user has eaten, recommend what to eat next based on nutritional gap analysis.\n\n'
-        'Scanning rules:\n'
-        '- "what can you see" / "what do you see" → call scan_objects. Returns temp detections, does NOT store anything.\n'
-        '- "inspect" / "scan" → call scan_objects. Report findings to user.\n'
-        '- "explore" / "look around" / "do a 360" → spin 90° + scan_objects, repeat 4 times. Report findings. Do NOT navigate or register.\n'
-        '- "remember this" / "save these objects" → call register_objects to persist stable detections as landmarks.\n'
-        '- "rotate X degrees" / "turn left/right" → call spin_robot only.\n\n'
+        'You are a robot assistant that can navigate and provide nutritional advice.\n\n'
+        'Tool selection for any movement + observation request:\n'
+        '  Just travel, no observation mentioned           → navigate_to_landmark\n'
+        '  Observation at current location, no travel      → scan_objects\n'
+        '  Travel AND observation during the trip          → navigate_and_scan\n'
+        '  Travel AND save objects seen on the trip        → navigate_and_scan,\n'
+        '                                                    then register_objects\n'
+        '  Observe in all directions without moving away   → spin_robot + scan_objects (×4)\n\n'
+        'Examples (follow these patterns exactly):\n'
+        '  "Go to the kitchen"\n'
+        '      → navigate_to_landmark(landmark_name="kitchen")\n'
+        '  "What do you see?" / "Inspect this area"\n'
+        '      → scan_objects\n'
+        '  "Go to reception and look for objects on the way"\n'
+        '      → navigate_and_scan(landmark_name="reception")\n'
+        '  "Navigate to the lab and detect anything interesting"\n'
+        '      → navigate_and_scan(landmark_name="lab")\n'
+        '  "Go back to the start point, detect objects along the way"\n'
+        '      → navigate_and_scan(landmark_name="start")\n'
+        '  "Go to kitchen and remember anything you find"\n'
+        '      → navigate_and_scan(landmark_name="kitchen")\n'
+        '      → register_objects\n'
+        '  "Rotate 90 degrees" / "turn left"\n'
+        '      → spin_robot\n\n'
+        'Tool reference (use the decision table above to pick; consult these for arguments):\n'
+        '- list_landmarks: list ALL navigable locations — fixed landmarks AND recently detected objects. Always call fresh.\n'
+        '- get_detected_objects: persistent landmark history on the robot. Only changes after register_objects. Call fresh.\n'
+        '- scan_objects: YOLO on the current camera frame → TEMP MEMORY only. Non-destructive.\n'
+        '- register_objects: persist detections as landmarks. Auto-drains temp memory from navigate_and_scan (map-frame); else runs a fresh 1-frame scan at the current pose.\n'
+        '- navigate_and_scan: travel + detect along the way (see decision table).\n'
+        '- navigate_to_landmark: PURE travel, no observation (see decision table).\n'
+        '- spin_robot: rotate in place (degrees, +CCW / -CW).\n'
+        '- forget_object: remove a stale detected object from the persistent map by frame name.\n'
+        '- get_meal_recommendation: recommend food based on nutritional gap from what the user has eaten.\n\n'
         'IMPORTANT:\n'
-        '- scan_objects is non-destructive — it only looks, never stores to landmark history.\n'
-        '- register_objects is the ONLY way to add detected objects to landmark history.\n'
-        '- Never call register_objects unless the user asks to remember/save objects, or you are explicitly searching for a specific object.\n'
-        '- Never navigate to an object unless the user explicitly asks you to go there.\n\n'
-        'To find a specific object (only when user asks "find X" or "go to X"):\n'
-        '1. Call get_detected_objects — if found, navigate to its coordinates directly.\n'
-        '2. If not found, call register_objects(targets="X") at current location — scans, validates, and stores in one step.\n'
+        '- scan_objects never stores anything to landmark history.\n'
+        '- register_objects is the ONLY way to add detected objects to landmark history — only call when the user asks to remember/save, or when actively searching for a specific object.\n'
+        '- Never navigate to an object unless the user explicitly asks you to go there.\n'
+        '- **Navigation failure handling**: if a navigation call you just issued returns status=failed or status=timeout, STOP for this turn. Do not try other landmarks, do not retry the same goal. Report the exact failure message and wait for the user. This applies ONLY to a failure the tool returned in the CURRENT user request — not to failures remembered from earlier turns.\n'
+        '- **Each new user request is a clean slate**: a past nav failure does NOT block future requests. If the user asks again, you MUST attempt the tool call fresh — never refuse based on memory of a prior failure, never fabricate a tool reply.\n'
+        '- **Never hallucinate a tool result**: only say a tool "failed" / "returned X" if you actually just called it in this turn and saw that reply. If you have not called the tool yet in the current turn, call it.\n'
+        '- Trust the nav tool\'s reply. If it reports success, the robot arrived. If it reports failed (including "not actually arrived"), the robot did NOT arrive — tell the user honestly, do not claim success.\n\n'
+        'To SEARCH for a specific object (only when the user says "find X" or "search for X" — '
+        'NOT plain "go to X", which is a direct navigate, not a search):\n'
+        '1. Call get_detected_objects — if found, navigate to its coordinates.\n'
+        '2. If not, call register_objects(targets="X") at current location — scans, validates, stores.\n'
         '3. If still not found, do a 360° explore: spin 90° + register_objects(targets="X"), repeat 4 times.\n'
-        '4. If still not found, navigate to the next landmark and repeat from step 2.\n'
-        '5. If all landmarks exhausted, report the object as not found.\n\n'
+        '4. If still not found, report "not found nearby" and ask the user where to look. Do NOT auto-travel to other landmarks.\n\n'
         'For nutrition questions (e.g. "I ate X, what should I eat for lunch?"), '
         'use get_meal_recommendation with the foods the user described.\n\n'
-        'Always reply in the same language the user uses.'
-        'When you moving between living room and bedroom, you have to go hallway first.'
+        'Always reply in the same language the user uses. '
+        'When moving between living room and bedroom, you have to go hallway first.'
     ),
 }
 
@@ -357,9 +398,9 @@ def main():
 
     from qwen_agent.llm import get_chat_model
     from tools.navigate_tool import NavigateToLandmark, ListLandmarks
-    from tools.object_tool import GetDetectedObjects, GetCurrentDetectedObjects, ForgetObject
+    from tools.object_tool import GetDetectedObjects, ForgetObject
     from tools.motion_tool import SpinRobot
-    from tools.detect_tool import ScanObjects, RegisterObjects
+    from tools.detect_tool import ScanObjects, RegisterObjects, NavigateAndScan
     from tools.nutrition_tool import GetMealRecommendation
 
     llm = get_chat_model({
@@ -375,10 +416,10 @@ def main():
         'navigate_to_landmark':         NavigateToLandmark(),
         'get_detected_objects':         GetDetectedObjects(),
         'spin_robot':                   SpinRobot(),
-        'get_current_detected_objects': GetCurrentDetectedObjects(),
         'forget_object':                ForgetObject(),
         'scan_objects':                 ScanObjects(),
         'register_objects':             RegisterObjects(),
+        'navigate_and_scan':            NavigateAndScan(),
         'get_meal_recommendation':      GetMealRecommendation(),
     }
 
