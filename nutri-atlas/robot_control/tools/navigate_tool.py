@@ -19,6 +19,8 @@ _ROBOT_IP   = os.environ.get('ROBOT_IP',      '10.203.168.250')
 _ROBOT_PORT = int(os.environ.get('ROBOT_PORT', 5555))
 _NAV_TIMEOUT_MS = int(os.environ.get('NAV_TIMEOUT_MS', 60000))
 
+_DETECTION_MODE = os.environ.get('DETECTION_MODE', 'sim')
+
 _loader = LandmarkLoader()
 _client = ZMQNavClient(robot_ip=_ROBOT_IP, port=_ROBOT_PORT, timeout_ms=_NAV_TIMEOUT_MS)
 
@@ -26,11 +28,13 @@ _client = ZMQNavClient(robot_ip=_ROBOT_IP, port=_ROBOT_PORT, timeout_ms=_NAV_TIM
 @register_tool('navigate_to_landmark')
 class NavigateToLandmark(BaseTool):
     description = (
-        'Navigate the robot to a position in the map. Two use cases: '
-        '(1) Named landmark — provide landmark_name and the position is looked up automatically; '
-        'use list_landmarks first if unsure of available names. '
-        '(2) Detected object — call get_detected_objects first to find the object\'s position (px, py), '
-        'then call this tool with x and y directly, omitting landmark_name.'
+        'Navigate the robot to a position in the map — PURE navigation, no observation. '
+        'DO NOT use this tool if the user mentions looking, scanning, detecting, checking, '
+        'observing, or remembering objects during the trip — use navigate_and_scan instead. '
+        'Use this tool ONLY when the user just wants to travel to a place. '
+        'Two inputs: (1) landmark_name (looked up via list_landmarks); '
+        '(2) x, y coordinates directly (for a previously detected object — '
+        'call get_detected_objects first to find (px, py)).'
     )
     parameters = [
         {
@@ -60,9 +64,22 @@ class NavigateToLandmark(BaseTool):
         if landmark_name:
             try:
                 pos = _loader.get(landmark_name)
-            except KeyError as e:
-                return json.dumps({'status': 'failed', 'message': str(e)})
-            x, y = pos['x'], pos['y']
+                x, y = pos['x'], pos['y']
+            except KeyError:
+                # In real world, also check bridge-stored detected objects
+                if _DETECTION_MODE == 'real':
+                    reply = _client.send_command('get_detected_objects')
+                    obj = reply.get('objects', {}).get(landmark_name)
+                    if obj:
+                        x, y = obj['px'], obj['py']
+                    else:
+                        available = list(_loader._landmarks.keys()) + list(reply.get('objects', {}).keys())
+                        return json.dumps({'status': 'failed',
+                                           'message': f"'{landmark_name}' not found. Available: {', '.join(available)}"})
+                else:
+                    available = ', '.join(_loader._landmarks.keys())
+                    return json.dumps({'status': 'failed',
+                                       'message': f"'{landmark_name}' not found. Available: {available}"})
         elif 'x' in args and 'y' in args:
             x, y = float(args['x']), float(args['y'])
         else:
@@ -76,12 +93,22 @@ class NavigateToLandmark(BaseTool):
 @register_tool('list_landmarks')
 class ListLandmarks(BaseTool):
     description = (
-        'List all named landmarks the robot can navigate to, '
-        'including their positions and descriptions.'
+        'List all locations the robot can navigate to. '
+        'Includes both fixed named landmarks AND any objects recently detected by the camera. '
+        'Always call this tool fresh — detected objects change every time the camera scans.'
     )
     parameters = []
 
     def call(self, params: str, **kwargs) -> str:
         landmarks = _loader.list_all()
+        if _DETECTION_MODE == 'real':
+            reply = _client.send_command('get_detected_objects')
+            for name, obj in reply.get('objects', {}).items():
+                landmarks.append({
+                    'name': name,
+                    'x': obj['px'],
+                    'y': obj['py'],
+                    'description': f"Detected {obj.get('label', name)} (from camera)",
+                })
         print(f"[list_landmarks] listing all landmarks")
         return json.dumps(landmarks, ensure_ascii=False)

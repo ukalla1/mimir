@@ -1,25 +1,35 @@
 landmarks:
-  bathroom:
-    x: 2.86
-    y: -10.68
-    description: "Bathroom"
+  Start Point:
+    x: 1.17
+    y: 2.98
+    description: "Start point"
 
-  Hallway:
-    x: 2.40
-    y: -4.64
-    description: "Hallway"
+  Playground:
+    x: 2.73
+    y: 7.94
+    description: "Playground that have a large free space for the robot to move around"
 
-  kitchen:
-    x: -4.88
-    y: -3.46
-    description: "Kitchen area"
+  Workspace 1:
+    x: 0.94
+    y: 1.83
+    description: "Workspace 1 where Boxun, Chang and Rithvik sitting"
 
-  bedroom:
-    x: -3.23
-    y: -8.92
-    description: "Bedroom"
+  Workspace 2:
+    x: -2.00
+    y: 1.70
+    description: "Workspace 2 where Uttej and Miki sitting"
 
-  living_room:
-    x: 6.53
-    y: -1.46
-    description: "Living room"
+  Reception:
+    x: -10.7
+    y: 1.8
+    description: "Reception place, where the front door located"
+
+  Kitchen:
+    x: -14.36
+    y: 10.73
+    description: "Kitchen area, where may have some foods and drinks"
+  
+  Meeting Room:
+    x: -6.96
+    y: 2.12
+    description: "Our large meeting room"

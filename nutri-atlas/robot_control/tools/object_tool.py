@@ -1,13 +1,15 @@
 """
 Qwen Agent tools for querying the detected-objects map.
 
-Registers two tools:
-  - get_detected_objects         : full persistent map via zmq_object_server (port 5556)
+Registers three tools:
+  - get_detected_objects         : full persistent map via zmq_object_server (port 5556) or bridge (real)
   - get_current_detected_objects : live detections via zmq_bridge_node (port 5555)
+  - forget_object                : remove a single entry from the persistent map (real world only)
 """
 import json
 import os
 
+import json5
 import zmq
 from qwen_agent.tools.base import BaseTool, register_tool
 
@@ -20,6 +22,10 @@ _OBJECT_TIMEOUT_MS  = int(os.environ.get('OBJECT_TIMEOUT_MS',  3000))
 _ROBOT_IP       = os.environ.get('ROBOT_IP',      '10.203.168.250')
 _ROBOT_PORT     = int(os.environ.get('ROBOT_PORT', 5555))
 _NAV_TIMEOUT_MS = int(os.environ.get('NAV_TIMEOUT_MS', 10000))
+
+# 'sim' (default): query zmq_object_server on port 5556
+# 'real'         : query zmq_bridge on port 5555 via get_detected_objects command
+_DETECTION_MODE = os.environ.get('DETECTION_MODE', 'sim')
 
 # Client for the full persistent map (port 5556)
 class _ObjectClient:
@@ -59,8 +65,11 @@ class GetDetectedObjects(BaseTool):
     parameters = []
 
     def call(self, params: str, **kwargs) -> str:
-        print("[get_detected_objects] called")
-        result = _client.get_objects()
+        print('[get_detected_objects] called')
+        if _DETECTION_MODE == 'real':
+            result = _bridge_client.send_command('get_detected_objects')
+        else:
+            result = _client.get_objects()
         return json.dumps(result, ensure_ascii=False)
 
 
@@ -76,4 +85,28 @@ class GetCurrentDetectedObjects(BaseTool):
     def call(self, params: str, **kwargs) -> str:
         print('[get_current_detected_objects] called')
         result = _bridge_client.send_command('get_current_objects')
+        return json.dumps(result, ensure_ascii=False)
+
+
+@register_tool('forget_object')
+class ForgetObject(BaseTool):
+    description = (
+        'Remove a previously detected object from the persistent detected-objects map. '
+        'Use when an object is no longer relevant, was detected incorrectly, or has moved. '
+        'Call list_landmarks or get_detected_objects first to get the exact frame name.'
+    )
+    parameters = [
+        {
+            'name': 'frame_name',
+            'type': 'string',
+            'description': 'Exact frame name to remove, e.g. "detected_bottle_0".',
+            'required': True,
+        }
+    ]
+
+    def call(self, params: str, **kwargs) -> str:
+        args = json5.loads(params)
+        frame_name = args.get('frame_name', '').strip()
+        print(f'[forget_object] removing {frame_name}')
+        result = _bridge_client.send_command('forget_object', frame_name=frame_name)
         return json.dumps(result, ensure_ascii=False)

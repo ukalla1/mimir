@@ -207,10 +207,65 @@ nutri_graph/
   models/                   # GAT checkpoints
 ```
 
-## Dependencies
+## Installation
 
-- Python 3.9+
-- PyTorch + PyTorch Geometric (GATv2Conv)
-- DuckDB
-- Kaggle API token (for dataset download)
-- Optional: kaleido (PNG export), umap-learn, plotly
+### Requirements
+
+- Python 3.9+ (tested on 3.10)
+- Conda environment recommended
+- Kaggle API token (`~/.kaggle/kaggle.json`) for dataset download
+- NVIDIA GPU recommended for GAT training (CPU fallback works but is slow)
+
+### Step 1: Install PyTorch
+
+Install PyTorch **first**, before any other packages. PyTorch Geometric extensions require PyTorch to already be present at build time.
+
+```bash
+# Example for CUDA 12.4 (adjust to your CUDA version)
+pip install torch==2.5.0 --index-url https://download.pytorch.org/whl/cu124
+```
+
+Check your CUDA version with `nvidia-smi` (top-right corner). Use CPU-only if no GPU:
+```bash
+pip install torch==2.5.0 --index-url https://download.pytorch.org/whl/cpu
+```
+
+### Step 2: Install PyTorch Geometric extensions
+
+Install the four PyG extension packages using **pre-built wheels** that match your exact torch + CUDA version. Using a mismatched wheel index (e.g. cu121 wheels with a cu124 torch) causes a runtime `undefined symbol` error even if installation succeeds.
+
+```bash
+# Replace torch-2.5.0+cu124 with your actual torch+CUDA combo
+pip install torch_scatter torch_sparse torch_cluster torch_spline_conv \
+  -f https://data.pyg.org/whl/torch-2.5.0+cu124.html
+```
+
+Verify the install actually works at runtime (don't skip this):
+```bash
+python -c "import torch_scatter; print('torch_scatter OK')"
+python -c "import torch_sparse; print('torch_sparse OK')"
+```
+
+If you see `undefined symbol: _ZN5torch3jit17parseSchemaOrNameERKSs`, the wheel was built for a different torch version — reinstall using the correct wheel URL.
+
+Available wheel indexes: https://data.pyg.org/whl/
+
+### Step 3: Install nutri_graph and its dependencies
+
+```bash
+cd /path/to/mimir
+
+pip install -e nutri_graph
+pip install torch-geometric
+pip install duckdb pandas scikit-learn umap-learn plotly kaleido \
+            pyvis networkx tqdm matplotlib kaggle kagglehub pyarrow
+```
+
+> **Note:** `requirements.txt` lists `torch_spline_conv -f https://data.pyg.org/whl/torch-2.2.0+cpu.html` as a fallback. Ignore that line — use the versioned wheel URL from Step 2 instead.
+
+### Step 4: Install nutri_rag (needed for recipe KB step)
+
+```bash
+pip install -e nutri_rag
+pip install transformers>=4.51.0 requests
+```

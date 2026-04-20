@@ -1,0 +1,35 @@
+landmarks:
+  Start Point:
+    x: 1.17
+    y: 2.98
+    description: "Start point"
+
+  Playground:
+    x: 2.73
+    y: 7.94
+    description: "Playground that have a large free space for the robot to move around"
+
+  Workspace 1:
+    x: 0.94
+    y: 1.83
+    description: "Workspace 1 where Boxun and Chang sitting"
+
+  Workspace 2:
+    x: -2.00
+    y: 1.70
+    description: "Workspace 2 where Uttej and Miki sitting"
+
+  Reception:
+    x: -10.72
+    y: 2.82
+    description: "Reception place, where the front door located"
+
+  Kitchen:
+    x: -14.36
+    y: 10.73
+    description: "Kitchen area, where may have some foods and drinks"
+  
+  Meeting Room:
+    x: -6.96
+    y: 2.12
+    description: "Our large meeting room"

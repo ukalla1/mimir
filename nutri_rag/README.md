@@ -25,12 +25,23 @@ These were discovered through iterative benchmarking on NutriBench:
 - **Partial coverage note**: "The reference may only cover some of the items — estimate the rest yourself" prevents the LLM from returning -1 when references don't cover all food items.
 - **8192 max tokens**: Long chain-of-thought responses were hitting the 4096 limit before producing output. Bumped to 8192 to prevent truncation.
 
-## NutriBench Results (Protein, 1000 samples)
+## Results
+
+### NutriBench (Protein, 1000 samples)
 
 | Version | Acc@7.5g | MAE |
 |---------|----------|-----|
 | Baseline (no RAG) | 0.735 | 7.00 |
 | V3 (multi-candidate) | **0.763** | **6.04** |
+
+### PFoodReq (Full test set, 2244 queries)
+
+| Method | MAP | MAR | F1 |
+|--------|-----|-----|-----|
+| BAMnet (PFoodReq paper, WSDM 2021) | 62.7 | 61.8 | 63.7 |
+| **Ours (Config C: filter + GAT, no LLM)** | **78.7** | **82.9** | **77.5** |
+
+Config C pipeline: tag lookup → deterministic constraint filter (ingredient inclusion/exclusion + nutrient ranges) → GAT re-ranking. Outperforms BAMnet without requiring an LLM — the deterministic filter leverages the clean augmented KB with accurate ingredient-nutrient mappings.
 
 ## Pipeline
 
