@@ -15,7 +15,7 @@ nutri_graph  →  nutri_rag  →  nutri-atlas  →  robot_side
 (KB + GAT)     (RAG pipeline)  (agent + tools)   (ZMQ→ROS2)
 ```
 
-- **nutri_graph/**: DuckDB knowledge base (USDA + FoodKG) + heterogeneous GATv2 training
+- **nutri_graph/**: DuckDB knowledge base (USDA + FoodKG) + heterogeneous GATv2 training. Sources: ~74K USDA FDC → ~4.6K after cleaning; 7,793 SR Legacy; ~82K FoodKG recipes matched via Qwen3-Embedding.
 - **nutri_rag/**: Four RAG retrieval versions (V0–V3), NutriBench/PFoodReq benchmarks, nutrition assistant
 - **nutri-atlas/**: Qwen Agent with tool-calling for robot navigation + nutrition advice
 - **nutri-atlas/robot_control/robot_side/**: ZMQ REP servers that run on the robot's onboard PC. Two sub-directories:
@@ -27,22 +27,41 @@ nutri_graph  →  nutri_rag  →  nutri-atlas  →  robot_side
 
 ## Build & Setup
 
-Python >=3.9. Install the two local packages:
+Requires Python >=3.9 (tested on 3.10), conda environment recommended, NVIDIA GPU recommended for GAT training. Kaggle API token at `~/.kaggle/kaggle.json` for data download.
 
+### Step 0: Environment
+
+**PyTorch first** (PyG extensions need it at build time):
 ```bash
-pip install -e nutri_graph
-pip install -e nutri_rag
-pip install -r nutri_graph/requirements.txt
-pip install qwen-agent pyzmq pyyaml json5
+# Adjust cu124 to match your CUDA version (check with nvidia-smi)
+pip install torch==2.5.0 --index-url https://download.pytorch.org/whl/cu124
 ```
 
-**Data pipeline must run in this exact order** (cross-subsystem dependencies):
+**PyTorch Geometric extensions** (use pre-built wheels matching your exact torch+CUDA combo):
+```bash
+pip install torch_scatter torch_sparse torch_cluster torch_spline_conv \
+  -f https://data.pyg.org/whl/torch-2.5.0+cu124.html
+```
+Mismatched wheels appear to install but crash with `undefined symbol` at runtime.
+
+**All remaining packages:**
+```bash
+cd ~/work/atlas/mimir
+pip install -e nutri_graph
+pip install -e nutri_rag
+pip install torch-geometric
+pip install duckdb pandas scikit-learn umap-learn plotly kaleido \
+            pyvis networkx tqdm matplotlib kaggle kagglehub pyarrow
+pip install qwen-agent pyzmq pyyaml json5 requests transformers
+```
+
+### Step 1–5: Data Pipeline (must run in this order)
 
 ```bash
 # 1. Build USDA + SR Legacy knowledge base
 cd nutri_graph && python scripts/build_kb.py
 
-# 2. Build text embeddings (nutri_graph's recipe builder needs these)
+# 2. Build text embeddings (recipe builder needs these)
 cd nutri_rag && python scripts/build_embeddings.py
 
 # 3. Integrate FoodKG recipes into KB
@@ -55,6 +74,37 @@ cd nutri_graph && python scripts/train_GAT.py
 cd nutri_rag && python scripts/build_recipe_embeddings.py
 ```
 
+### Step 6: LLM Server Setup
+
+**Build llama.cpp** (expects binary at `~/softwares/llama.cpp/llama-server`):
+```bash
+mkdir -p ~/softwares && cd ~/softwares
+git clone https://github.com/ggml-org/llama.cpp
+
+# With sudo:
+cmake llama.cpp -B llama.cpp/build -DBUILD_SHARED_LIBS=OFF -DGGML_CUDA=ON
+cmake --build llama.cpp/build --config Release -j --clean-first --target llama-server
+cp llama.cpp/build/bin/llama-server llama.cpp/llama-server
+
+# Without sudo — find nvcc path first: find /usr/local/cuda* -name nvcc 2>/dev/null
+cmake llama.cpp -B llama.cpp/build -DBUILD_SHARED_LIBS=OFF -DGGML_CUDA=ON \
+    -DCMAKE_CUDA_COMPILER=/usr/local/cuda-13.0/bin/nvcc
+cmake --build llama.cpp/build --config Release -j --clean-first --target llama-server
+cp llama.cpp/build/bin/llama-server llama.cpp/llama-server
+```
+Use CUDA 13.0+ (not 12.1 — llama.cpp targets `compute_120` which requires CUDA 12.8+).
+
+**Download Qwen3.5-9B GGUF** (expects model at `/home/boxun/work/atlas/unsloth/Qwen3.5-9B-GGUF/Qwen3.5-9B-UD-Q4_K_XL.gguf`):
+```bash
+python -c "
+from huggingface_hub import snapshot_download
+snapshot_download(
+    repo_id='unsloth/Qwen3.5-9B-GGUF',
+    local_dir='/home/boxun/work/atlas/unsloth/Qwen3.5-9B-GGUF',
+    allow_patterns=['*UD-Q4_K_XL*']
+)"
+```
+
 ## Running
 
 **LLM server** (required for everything except PFoodReq benchmark):
@@ -63,7 +113,7 @@ cd nutri_rag && python scripts/build_recipe_embeddings.py
 cd nutri_rag && bash scripts/start_server.sh   # Qwen3.5-9B on port 8080, parallel=1
 ```
 
-For concurrent benchmark requests use `../../qwen_test/start_server.sh` (parallel=3, otherwise identical).
+For concurrent benchmark requests use `../../qwen_test/start_server.sh` (parallel=3).
 
 **Benchmarks:**
 
@@ -88,29 +138,25 @@ cd nutri-atlas/robot_control && python robot_assistant.py  # robot + nutrition
 **Robot-side (run on the robot's onboard PC):**
 
 ```bash
-# Must source ROS2 first
-source /opt/ros/humble/setup.bash
-source ~/test_ws/install/setup.bash
+source /opt/ros/humble/setup.bash && source ~/test_ws/install/setup.bash
 
 # Terminal 1 — RealSense camera + ZMQ image bridge + static TF
 ros2 launch realsense_zmq bringup_with_zmq.launch.py
 
 # Terminal 2 — ZMQ navigation bridge (port 5555)
 cd nutri-atlas/robot_control/robot_side/zmq_bridge_real
-python zmq_bridge_node_working_v2.py          # default port 5555
-# Optional flags: --port 5555 --spin-kp 1.5 --move-kp 0.8
-#                 --spin-threshold-deg 3.0 --move-threshold-m 0.05
-# Also reads env var: ZMQ_PORT
+python zmq_bridge_node_working_v2.py
+# Optional: --port 5555 --spin-kp 1.5 --move-kp 0.8 --spin-threshold-deg 3.0 --move-threshold-m 0.05
 
 # Terminal 3 — persistent object map server (port 5556, simulation only)
-# python zmq_object_server.py                 # not needed in real-world mode
+# python zmq_object_server.py
 
-# (Optional) Record landmark coordinates manually for initialization
+# (Optional) Record landmark coordinates interactively
 cd nutri-atlas/robot_control/robot_side
 python coordinates_record.py --output landmarks_record.json
 ```
 
-Run the robot assistant on the operator PC (CLI args take precedence over env vars):
+**Robot assistant on operator PC:**
 
 ```bash
 # Real world
@@ -122,12 +168,8 @@ python robot_assistant.py --robot-ip 127.0.0.1
 
 # Real-world detectors (separate terminal) — pick one:
 cd nutri-atlas/robot_control/tools
-
-# Manual: press Enter to push current frame to robot
-python detector_node_real_world.py --robot-ip 192.168.0.114
-
-# Automatic: sends stable detections without manual input
-python detector_node_real_world_auto.py --robot-ip 192.168.0.114
+python detector_node_real_world.py --robot-ip 192.168.0.114          # manual: press Enter
+python detector_node_real_world_auto.py --robot-ip 192.168.0.114     # automatic
 python detector_node_real_world_auto.py --robot-ip 192.168.0.114 \
     --targets person chair --stable-conf 0.6 --stable-frames 10
 ```
@@ -214,6 +256,43 @@ Args are set as env vars before tools are imported, so tools pick them up correc
 | `GAT_NEIGHBORS_K` | 5 | GAT neighbors per seed |
 | `PFOODREQ_LAMBDA` | 1.0 | Pure GAT scoring for PFoodReq |
 | `LLM_BASE_URL` | localhost:8080 | llama-server endpoint |
+
+### Network Checklist (two-machine deployment)
+
+- Both machines on the same subnet (e.g. `192.168.0.x`)
+- Verify connectivity: `ping <robot_ip>` from operator PC
+- Firewall allows inbound TCP `5555` on robot (real world); also `5556` for simulation
+- LLM server runs on `localhost:8080` on the operator PC only
+
+## Benchmark Results
+
+**NutriBench** (Protein, 1000 samples):
+
+| Version | Acc@7.5g | MAE |
+|---------|----------|-----|
+| Baseline (no RAG) | 0.735 | 7.00 |
+| V3 (multi-candidate + GAT) | **0.763** | **6.04** |
+
+**PFoodReq** (Full test set, 2244 queries):
+
+| Method | MAP | MAR | F1 |
+|--------|-----|-----|-----|
+| BAMnet (WSDM 2021) | 62.7 | 61.8 | 63.7 |
+| **Ours (Config C: filter + GAT, no LLM)** | **78.7** | **82.9** | **77.5** |
+
+## Tech Stack
+
+| Layer | Technology |
+|-------|-----------|
+| Graph ML | PyTorch + PyTorch Geometric (GATv2Conv) |
+| Text Embeddings | Qwen3-Embedding-0.6B (1024d, last-token pooling) |
+| LLM Inference | Qwen3.5-9B via llama.cpp / llama-server |
+| Agent Framework | Qwen Agent (tool-calling orchestration) |
+| Robot Communication | ZMQ → ROS2 (Clearpath Go2) |
+| Database | DuckDB (columnar storage + full-text search) |
+| Data Sources | USDA FoodData Central + USDA SR Legacy + FoodKG |
+| Evaluation | lm-evaluation-harness |
+| Visualization | Plotly, UMAP, scikit-learn |
 
 ## Key Files
 

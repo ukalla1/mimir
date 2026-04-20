@@ -512,16 +512,21 @@ mimir/
 │   │   ├── robot_assistant.py     # Main chat loop + Qwen Agent
 │   │   ├── tools/
 │   │   │   ├── navigate_tool.py   # Navigate to landmarks / coordinates
+│   │   │   ├── detect_tool.py     # navigate_and_scan, scan_objects, register_objects
 │   │   │   ├── object_tool.py     # Camera object detection queries
 │   │   │   ├── motion_tool.py     # Spin and move primitives
 │   │   │   ├── nutrition_tool.py  # Meal recommendation (wraps nutri_rag)
+│   │   │   ├── detector_node_real_world.py      # Manual YOLO detector
+│   │   │   ├── detector_node_real_world_auto.py # Auto YOLO detector (stability gate)
 │   │   │   └── zmq_client.py      # ZMQ transport to robot
+│   │   ├── robot_side/
+│   │   │   ├── zmq_bridge_real/
+│   │   │   │   ├── zmq_bridge_node_working_v2.py  # REP server :5555 → ROS2 nav/detection
+│   │   │   │   ├── zmq_object_server.py           # REP server :5556 (simulation only)
+│   │   │   │   └── realsense_zmq/launch/          # RealSense + ZMQ image bridge + TF
+│   │   │   └── coordinates_record.py              # Record landmark coords via TF
 │   │   └── config/landmarks.yaml  # Named room positions
 │   └── benchmark_tasks.yaml       # 30+ graded robot benchmark tasks
-│
-├── robot_side/                    # ZMQ servers (runs on robot onboard PC)
-│   ├── zmq_bridge_node.py         # REP server :5555 → ROS2 nav/motion/lidar
-│   └── zmq_object_server.py       # REP server :5556 → persistent object map
 │
 ├── PFoodReq/                      # PFoodReq benchmark data (WSDM 2021)
 │   └── data/kbqa_data/            # test/dev/train splits + dish_info_map

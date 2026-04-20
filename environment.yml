@@ -1,0 +1,64 @@
+name: mimir
+channels:
+  - pytorch
+  - nvidia
+  - conda-forge
+  - defaults
+
+dependencies:
+  - python=3.10
+  - pip
+
+  # PyTorch (CUDA 12.4 — adjust cuda version to match your system)
+  - pytorch=2.5.0
+  - torchvision
+  - pytorch-cuda=12.4
+
+  # Core scientific stack
+  - numpy
+  - pandas
+  - scikit-learn
+  - matplotlib
+  - tqdm
+  - networkx
+
+  # pip-only packages
+  - pip:
+    # Local packages (editable installs)
+    - -e ./nutri_graph
+    - -e ./nutri_rag
+
+    # PyTorch Geometric extensions
+    # IMPORTANT: wheel URL must match your exact torch+CUDA version
+    # Replace torch-2.5.0+cu124 if your version differs — see https://data.pyg.org/whl/
+    - torch-geometric
+    - torch_scatter   -f https://data.pyg.org/whl/torch-2.5.0+cu124.html
+    - torch_sparse    -f https://data.pyg.org/whl/torch-2.5.0+cu124.html
+    - torch_cluster   -f https://data.pyg.org/whl/torch-2.5.0+cu124.html
+    - torch_spline_conv -f https://data.pyg.org/whl/torch-2.5.0+cu124.html
+
+    # Knowledge base + data
+    - duckdb
+    - pyarrow
+    - kaggle
+    - kagglehub
+
+    # Visualization
+    - plotly
+    - kaleido
+    - pyvis
+    - umap-learn
+
+    # LLM + embeddings
+    - transformers>=4.51.0
+    - requests
+
+    # Robot / agent
+    - qwen-agent
+    - pyzmq
+    - pyyaml
+    - json5
+
+    # Real-world detection (operator PC only)
+    - ultralytics
+    - opencv-python
