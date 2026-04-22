@@ -85,6 +85,8 @@ def main():
     parser.add_argument('--conf',       type=float, default=DEFAULT_CONF)
     parser.add_argument('--iou',        type=float, default=DEFAULT_IOU)
     parser.add_argument('--no-display', action='store_true')
+    parser.add_argument('--save', action='store_true',
+                        help='Save color+depth frame pairs to ../data/ on each Enter press.')
     args = parser.parse_args()
 
     if not os.path.exists(args.model):
@@ -99,6 +101,12 @@ def main():
     print(f'  Model        : {args.model}')
     print(f'  Conf / IoU   : {args.conf} / {args.iou}')
     print('=' * 60)
+
+    _DATA_DIR = os.path.join(os.path.dirname(__file__), '..', 'data')
+    save_counter = 0
+    if args.save:
+        os.makedirs(_DATA_DIR, exist_ok=True)
+        print(f'  Save dir     : {os.path.abspath(_DATA_DIR)}')
 
     detector   = YOLODetector(args.model, conf=args.conf, iou=args.iou)
     zmq_client = ZMQNavClient(robot_ip=args.robot_ip, port=args.robot_port, timeout_ms=5000)
@@ -178,6 +186,19 @@ def main():
         # Send on Enter
         if send_event.is_set():
             send_event.clear()
+
+            # Save color+depth pair if --save
+            if args.save:
+                save_counter += 1
+                color_path = os.path.join(_DATA_DIR, f'color_{save_counter:04d}.png')
+                depth_path = os.path.join(_DATA_DIR, f'depth_{save_counter:04d}.npy')
+                cv2.imwrite(color_path, bgr)
+                if depth_frame is not None:
+                    np.save(depth_path, depth_frame.data)
+                print(f'[save] color → {color_path}')
+                if depth_frame is not None:
+                    print(f'[save] depth → {depth_path}')
+
             with detections_lock:
                 to_send = [d for d in latest_detections if d.has_3d]
 

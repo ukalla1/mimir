@@ -54,26 +54,6 @@ TOOL_DEFINITIONS = [
             },
         },
     },
-    # {
-    #     'type': 'function',
-    #     'function': {
-    #         'name': 'get_lidar_scan',
-    #         'description': (
-    #             'Return the current LiDAR obstacle distances in 8 directional sectors around the robot. '
-    #             'Returns min distance per sector, overall min_distance, its direction, and safe_directions. '
-    #             'Use this before moving to check for nearby obstacles and choose a safe direction.'
-    #         ),
-    #         'parameters': {
-    #             'type': 'object',
-    #             'properties': {
-    #                 'min_dist': {
-    #                     'type': 'number',
-    #                     'description': 'Minimum clearance in metres to consider a direction safe. Default 1.0 m.',
-    #                 },
-    #             },
-    #         },
-    #     },
-    # },
     {
         'type': 'function',
         'function': {
