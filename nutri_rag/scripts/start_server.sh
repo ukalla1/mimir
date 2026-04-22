@@ -13,6 +13,7 @@
 set -e
 
 MODEL_PATH="/home/boxun/work/atlas/unsloth/Qwen3.5-9B-GGUF/Qwen3.5-9B-UD-Q4_K_XL.gguf"
+MMPROJ_PATH="/home/boxun/work/atlas/unsloth/Qwen3.5-9B-GGUF/mmproj-BF16.gguf"
 PORT=8080
 
 echo "==> Starting llama-server for nutri_rag assistant (port $PORT) ..."
@@ -23,6 +24,7 @@ echo ""
 
 ~/softwares/llama.cpp/llama-server \
     --model "$MODEL_PATH" \
+    --mmproj "$MMPROJ_PATH" \
     --port "$PORT" \
     --host 0.0.0.0 \
     --ctx-size 32768 \

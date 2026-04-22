@@ -19,7 +19,9 @@ Setup (env vars or CLI args):
 Make sure start_server.sh is running first.
 """
 import argparse
+import base64
 import json
+import mimetypes
 import os
 import re
 
@@ -329,9 +331,32 @@ SYSTEM_MSG = {
         'For nutrition questions (e.g. "I ate X, what should I eat for lunch?"), '
         'use get_meal_recommendation with the foods the user described.\n\n'
         'Always reply in the same language the user uses. '
-        'When moving between living room and bedroom, you have to go hallway first.'
+        'When moving between living room and bedroom, you have to go hallway first.\n\n'
+        'If the user message contains an image, describe or analyse that image directly. '
+        'Do NOT call scan_objects or any other tool for user-provided images.'
     ),
 }
+
+
+def _build_user_content(query: str):
+    """Return content for a user message — plain string or multimodal list.
+
+    Syntax: @/path/to/image.jpg optional text describing what to ask
+    Example: @/tmp/photo.jpg what objects do you see?
+    """
+    if query.startswith('@'):
+        parts = query[1:].split(' ', 1)
+        img_path = os.path.expanduser(parts[0].strip())
+        text = parts[1].strip() if len(parts) > 1 else 'What do you see?'
+        from qwen_agent.llm.schema import ContentItem
+        mime = mimetypes.guess_type(img_path)[0] or 'image/jpeg'
+        with open(img_path, 'rb') as f:
+            b64 = base64.b64encode(f.read()).decode()
+        return [
+            ContentItem(image=f'data:{mime};base64,{b64}'),
+            ContentItem(text=f'[User sent an image. Answer directly from the image — do NOT call any tools.] {text}'),
+        ]
+    return query
 
 
 def _strip_think(text: str) -> str:
@@ -435,7 +460,7 @@ def main():
         if query.lower() in ('exit', 'quit', ''):
             break
 
-        messages.append({'role': 'user', 'content': query})
+        messages.append({'role': 'user', 'content': _build_user_content(query)})
 
         print('Assistant: ', end='', flush=True)
         reply = _run_turn(messages, llm, TOOL_DEFINITIONS, tools)
