@@ -116,9 +116,10 @@ TOOL_DEFINITIONS = [
         'function': {
             'name': 'scan_objects',
             'description': (
-                'Run YOLO object detection on the current camera frame. '
-                'Detects objects and stores them in TEMP MEMORY only — does NOT persist to landmark history. '
-                'Use this to look at what is around without side effects. '
+                'Look at the current camera view. '
+                'In YOLO mode: runs object detection and stores results in temp memory. '
+                'In VLM mode: saves the camera frame and shows you the image — describe what you see directly. '
+                'Does NOT persist to landmark history. '
                 'Call register_objects afterwards to persist detected objects as landmarks.'
             ),
             'parameters': {
@@ -385,6 +386,27 @@ def _run_turn(messages: list, llm, tool_definitions: list, tools: dict) -> str:
             result = tool.call(json.dumps(args)) if tool else json.dumps({'error': f'Unknown tool: {name}'})
             messages.append({'role': 'function', 'name': name, 'content': result})
 
+            # VLM mode: if scan_objects returned an image_path, inject the image
+            # into the conversation so the agent LLM can see and describe it directly.
+            if name == 'scan_objects':
+                try:
+                    scan_result = json.loads(result)
+                    img_path = scan_result.get('image_path')
+                    if img_path and os.path.exists(img_path):
+                        from qwen_agent.llm.schema import ContentItem
+                        mime = mimetypes.guess_type(img_path)[0] or 'image/png'
+                        with open(img_path, 'rb') as f:
+                            b64 = base64.b64encode(f.read()).decode()
+                        messages.append({
+                            'role': 'user',
+                            'content': [
+                                ContentItem(image=f'data:{mime};base64,{b64}'),
+                                ContentItem(text='This is the current camera view. Describe what you see.'),
+                            ],
+                        })
+                except (json.JSONDecodeError, KeyError):
+                    pass
+
 
 # --- Chat loop ---
 def main():
@@ -393,6 +415,9 @@ def main():
     parser.add_argument('--robot-port', default=os.environ.get('ROBOT_PORT',    '5555'))
     parser.add_argument('--detection-mode', default=os.environ.get('DETECTION_MODE', 'sim'),
                         choices=['sim', 'real'])
+    parser.add_argument('--detector', default=os.environ.get('DETECTOR_TYPE', 'yolo'),
+                        choices=['yolo', 'vlm'],
+                        help='Object detector: yolo (fast, COCO 80) or vlm (slow, open vocabulary)')
     args = parser.parse_args()
 
     # Set env vars before importing tools (they read env at module load time)
@@ -400,6 +425,7 @@ def main():
     os.environ['ROBOT_PORT']      = str(args.robot_port)
     os.environ['OBJECT_SERVER_IP'] = args.robot_ip
     os.environ['DETECTION_MODE']  = args.detection_mode
+    os.environ['DETECTOR_TYPE']   = args.detector
 
     from qwen_agent.llm import get_chat_model
     from tools.navigate_tool import NavigateToLandmark, ListLandmarks
@@ -431,7 +457,18 @@ def main():
     print('Robot Navigation Assistant (type "exit" to quit)')
     print(f'  Robot IP      : {args.robot_ip}:{args.robot_port}')
     print(f'  Detection mode: {args.detection_mode}')
+    print(f'  Detector      : {args.detector}')
     print()
+
+    # Clear detected landmarks from previous session
+    from tools.zmq_client import ZMQNavClient
+    _zmq = ZMQNavClient(robot_ip=args.robot_ip, port=int(args.robot_port),
+                        timeout_ms=int(os.environ.get('NAV_TIMEOUT_MS', 10000)))
+    reply = _zmq.send_command('clear_objects')
+    if reply.get('status') == 'success':
+        print(f'[startup] {reply["message"]}')
+    else:
+        print(f'[startup] clear_objects: {reply.get("message", reply)}')
 
     messages = [SYSTEM_MSG]
 

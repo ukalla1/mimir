@@ -25,7 +25,7 @@ from .image_receiver import ImageReceiver
 from .zmq_client import ZMQNavClient
 from .landmark_loader import LandmarkLoader
 from .detector_core import (
-    YOLODetector, Detection, FrameCache, fill_depth_3d,
+    YOLODetector, VLMDetector, Detection, FrameCache, fill_depth_3d,
     DEFAULT_MODEL, DEFAULT_CONF, DEFAULT_IOU,
 )
 
@@ -35,9 +35,14 @@ _COLOR_PORT     = 5557
 _DEPTH_PORT     = 5558
 _NAV_TIMEOUT_MS = int(os.environ.get('NAV_TIMEOUT_MS', 10000))
 
+# Directory for saved camera frames (VLM mode)
+_DATA_DIR = os.path.join(os.path.dirname(__file__), '..', 'data')
+os.makedirs(_DATA_DIR, exist_ok=True)
+
 # Interest list — only these labels are eligible for registration.
 # Empty string = allow all labels.
 _INTEREST_OBJECTS = os.environ.get('INTEREST_OBJECTS', '')
+_DETECTOR_TYPE    = os.environ.get('DETECTOR_TYPE', 'yolo')
 
 # Time to wait for frames on first init (seconds)
 _WARMUP_WAIT    = 2.0
@@ -62,8 +67,12 @@ class _Scanner:
     """Wraps YOLO detector + frame receivers. Created once, reused across calls."""
 
     def __init__(self):
-        print('[scan_objects] Initialising YOLO detector + camera streams...')
-        self.detector   = YOLODetector(DEFAULT_MODEL, conf=DEFAULT_CONF, iou=DEFAULT_IOU)
+        if _DETECTOR_TYPE == 'vlm':
+            print('[scan_objects] Initialising VLM detector + camera streams...')
+            self.detector = VLMDetector()
+        else:
+            print('[scan_objects] Initialising YOLO detector + camera streams...')
+            self.detector = YOLODetector(DEFAULT_MODEL, conf=DEFAULT_CONF, iou=DEFAULT_IOU)
         self.cache      = FrameCache()
         self.zmq_client = ZMQNavClient(robot_ip=_ROBOT_IP, port=_ROBOT_PORT,
                                        timeout_ms=_NAV_TIMEOUT_MS)
@@ -112,6 +121,33 @@ class _Scanner:
             time.sleep(0.05)
         return None, None
 
+    def _save_current_frame(self) -> tuple[str | None, str | None]:
+        """Snapshot the current ZMQ camera frames to disk.
+
+        Returns (color_path, depth_path) or (None, None) if no frame available.
+        """
+        color_frame, depth_frame = self._grab_frame()
+        if color_frame is None:
+            return None, None
+
+        bgr = (cv2.cvtColor(color_frame.data, cv2.COLOR_RGB2BGR)
+               if color_frame.encoding == 'rgb8' else color_frame.data)
+
+        color_path = os.path.join(_DATA_DIR, 'color_current.png')
+        depth_path = os.path.join(_DATA_DIR, 'depth_current.npy')
+
+        cv2.imwrite(color_path, bgr)
+        if depth_frame is not None:
+            np.save(depth_path, depth_frame.data)
+        else:
+            # Save a zero array so depth_path always exists
+            np.save(depth_path, np.zeros(bgr.shape[:2], dtype=np.uint16))
+
+        color_path = os.path.abspath(color_path)
+        depth_path = os.path.abspath(depth_path)
+        print(f'[scan_objects] Saved frame: {color_path}')
+        return color_path, depth_path
+
     def _detect_once(self, targets: set | None = None):
         """Run YOLO on current frame. Returns (qualified_detections, all_labels) or (None, None) on error."""
         color_frame, depth_frame = self._grab_frame()
@@ -141,7 +177,23 @@ class _Scanner:
         """
         Run one detection cycle. Stores results in temp memory only.
         Does NOT persist to the robot's landmark history.
+
+        VLM mode: saves the camera frame to disk and returns the image path.
+        The agent LLM sees the image inline and describes the scene directly.
         """
+        if _DETECTOR_TYPE == 'vlm':
+            color_path, depth_path = self._save_current_frame()
+            if color_path is None:
+                return {'status': 'error',
+                        'message': 'No camera frame available. Is the RealSense camera running?'}
+            return {
+                'status': 'ok',
+                'image_path': color_path,
+                'depth_path': depth_path,
+                'note': 'Camera frame saved. Describe what you see in the image.',
+            }
+
+        # YOLO path: run detection as before
         qualified, all_labels = self._detect_once(targets)
 
         if qualified is None:
@@ -174,11 +226,65 @@ class _Scanner:
         }
 
     # ------------------------------------------------------------------
+    # VLM register: grounding on saved frames → 3D → dedup → bridge
+    # ------------------------------------------------------------------
+    def _register_vlm(self, interest: set | None = None) -> dict:
+        """Run VLM grounding on saved frames, get 3D positions, send to bridge."""
+        color_path = os.path.join(_DATA_DIR, 'color_current.png')
+        depth_path = os.path.join(_DATA_DIR, 'depth_current.npy')
+
+        if not os.path.exists(color_path) or not os.path.exists(depth_path):
+            # No saved frames — save them now
+            color_path, depth_path = self._save_current_frame()
+            if color_path is None:
+                return {'status': 'error',
+                        'message': 'No camera frame available. Is the RealSense camera running?'}
+
+        print(f'[register_objects] VLM grounding on saved frames...')
+        dets = self.detector.detect_from_files(color_path, depth_path)
+
+        # Apply interest filter
+        if interest:
+            dets = [d for d in dets if d.label in interest]
+
+        # Filter to detections with valid 3D
+        qualified = [d for d in dets if d.has_3d]
+
+        if not qualified:
+            all_labels = [d.label for d in dets]
+            return {
+                'status': 'ok',
+                'registered': [],
+                'filtered_unstable': [],
+                'filtered_interest': [],
+                'skipped_dedup': [],
+                'message': f'No objects with valid depth detected. '
+                           f'Raw detections: {all_labels if all_labels else "none"}',
+            }
+
+        # Build stable dict (single-frame, so no averaging needed)
+        stable = {}
+        for d in qualified:
+            stable[d.label] = {
+                'label': d.label,
+                'cam_x': d.cam_x_m,
+                'cam_y': d.cam_y_m,
+                'cam_z': d.cam_z_m,
+                'hit_count': 1,
+            }
+
+        # --- Spatial dedup + bridge send (same as YOLO path) ---
+        return self._dedup_and_send(stable, unstable=[], filtered_interest=[])
+
+    # ------------------------------------------------------------------
     # Stage 2+3: register (stability check → interest filter → dedup → bridge)
     # ------------------------------------------------------------------
     def register(self, targets: set | None = None) -> dict:
         """
         Multi-frame stability check + interest filter + spatial dedup → persist to bridge.
+
+        VLM mode: loads saved frames from disk, runs VLM grounding + depth sampling
+        to get 3D positions, then proceeds with the same dedup + bridge pipeline.
 
         Args:
             targets: if non-empty, only register objects whose label is in this set.
@@ -189,7 +295,10 @@ class _Scanner:
         if not interest and _INTEREST_OBJECTS:
             interest = {t.strip() for t in _INTEREST_OBJECTS.split(',') if t.strip()}
 
-        # --- Stage 2a: Multi-frame stability ---
+        if _DETECTOR_TYPE == 'vlm':
+            return self._register_vlm(interest)
+
+        # --- YOLO path: Stage 2a: Multi-frame stability ---
         print(f'[register_objects] Running {_STABILITY_FRAMES}-frame stability check...')
         # Track: label → list of (cam_x, cam_y, cam_z) across frames
         hits: dict[str, list[tuple[float, float, float]]] = defaultdict(list)
@@ -251,11 +360,21 @@ class _Scanner:
                 'message': 'No objects matched the interest list.',
             }
 
-        # --- Stage 2c: Spatial dedup against existing landmarks ---
-        # Get camera pose (map → camera_link TF) to transform detections to map frame
+        return self._dedup_and_send(stable, unstable=unstable,
+                                    filtered_interest=filtered_interest)
+
+    def _dedup_and_send(self, stable: dict, unstable: list = None,
+                        filtered_interest: list = None) -> dict:
+        """Spatial dedup against existing landmarks + send to bridge.
+
+        Shared by both YOLO and VLM register paths.
+        """
+        unstable = unstable or []
+        filtered_interest = filtered_interest or []
+
+        # --- Spatial dedup against existing landmarks ---
         pose_reply = self.zmq_client.send_command('get_camera_pose')
         if pose_reply.get('status') != 'ok':
-            # Can't transform — skip dedup, let bridge handle it in Stage 3
             print(f'[register_objects] Warning: camera pose unavailable, skipping pre-dedup')
             to_send = list(stable.values())
             skipped_dedup = []
@@ -263,19 +382,16 @@ class _Scanner:
             tx, ty, tz = pose_reply['translation']
             R = pose_reply['rotation']
 
-            # Bridge returns {frame_name: {"px": ..., "py": ..., "label": ...}, ...}
             existing_reply = self.zmq_client.send_command('get_detected_objects')
             existing_objects = existing_reply.get('objects', {})
 
             skipped_dedup = []
             to_send = []
             for label, obj in stable.items():
-                # Transform camera-frame → map-frame
                 cx, cy, cz = obj['cam_x'], obj['cam_y'], obj['cam_z']
                 map_x = R[0][0]*cx + R[0][1]*cy + R[0][2]*cz + tx
                 map_y = R[1][0]*cx + R[1][1]*cy + R[1][2]*cz + ty
 
-                # Check distance to existing objects with same label (both in map frame)
                 dominated = False
                 for frame_name, ex in existing_objects.items():
                     if not isinstance(ex, dict):
@@ -304,7 +420,7 @@ class _Scanner:
                 'message': 'All stable objects already exist nearby.',
             }
 
-        # --- Stage 3: Send to bridge ---
+        # --- Send to bridge ---
         objects_payload = [{'label': o['label'], 'cam_x': o['cam_x'],
                             'cam_y': o['cam_y'], 'cam_z': o['cam_z']}
                            for o in to_send]

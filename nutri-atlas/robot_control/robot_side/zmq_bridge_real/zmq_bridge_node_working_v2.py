@@ -274,6 +274,10 @@ class ZMQBridgeNode(Node):
             self.get_logger().info(f'[{goal_id[:8]}] forget_object {frame_name}')
             return self._handle_forget_object(goal_id, frame_name)
 
+        elif command_type == 'clear_objects':
+            self.get_logger().info(f'[{goal_id[:8]}] clear_objects')
+            return self._handle_clear_objects(goal_id)
+
         elif 'x' in msg and 'y' in msg:
             gx, gy = float(msg['x']), float(msg['y'])
             self.get_logger().info(
@@ -928,6 +932,16 @@ class ZMQBridgeNode(Node):
         _save_detected_objects(_DETECTED_OBJECTS_FILE, objects)
         return {'goal_id': goal_id, 'status': 'success',
                 'message': f"Removed '{frame_name}' from detected objects"}
+
+    def _handle_clear_objects(self, goal_id: str) -> dict:
+        objects = _load_detected_objects(_DETECTED_OBJECTS_FILE)
+        count = len(objects)
+        _save_detected_objects(_DETECTED_OBJECTS_FILE, {})
+        with self._stored_objects_lock:
+            self._stored_objects.clear()
+        self.get_logger().info(f'[clear_objects] Cleared {count} detected object(s)')
+        return {'goal_id': goal_id, 'status': 'success',
+                'message': f'Cleared {count} detected object(s)'}
 
     # ------------------------------------------------------------------
     # ROS topic callbacks (called from rclpy.spin thread)

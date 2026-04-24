@@ -27,7 +27,7 @@ echo ""
     --mmproj "$MMPROJ_PATH" \
     --port "$PORT" \
     --host 0.0.0.0 \
-    --ctx-size 32768 \
+    --ctx-size 65536 \
     --n-gpu-layers 999 \
     --parallel 1 \
     --chat-template-kwargs '{"enable_thinking":false}'
