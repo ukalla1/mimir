@@ -202,6 +202,9 @@ pip install duckdb pandas scikit-learn umap-learn plotly kaleido \
 
 # Install nutri-atlas dependencies
 pip install qwen-agent pyzmq pyyaml json5 requests transformers
+
+# Install lm-evaluation-harness with API support (required for NutriBench benchmarks)
+pip install lm-eval[api]
 ```
 
 Notes:
@@ -323,7 +326,7 @@ Verify the build succeeded:
 
 #### 6b: Download Qwen3.5-9B GGUF
 
-`start_server.sh` expects the model at `/home/boxun/work/atlas/unsloth/Qwen3.5-9B-GGUF/Qwen3.5-9B-UD-Q4_K_XL.gguf`. Download only the `UD-Q4_K_XL` quantization (~6GB), which gives good quality/speed on a 24GB+ GPU:
+Two files are always required — the base model and the mmproj vision adapter:
 
 ```bash
 mkdir -p /home/boxun/work/atlas/unsloth
@@ -333,10 +336,39 @@ from huggingface_hub import snapshot_download
 snapshot_download(
     repo_id='unsloth/Qwen3.5-9B-GGUF',
     local_dir='/home/boxun/work/atlas/unsloth/Qwen3.5-9B-GGUF',
-    allow_patterns=['*UD-Q4_K_XL*']
+    allow_patterns=['*UD-Q4_K_XL*', 'mmproj-BF16.gguf']
 )
 "
 ```
+
+This downloads `Qwen3.5-9B-UD-Q4_K_XL.gguf` (~6GB, default model) and `mmproj-BF16.gguf` (~922MB, required for vision/VLM mode).
+
+**Optional — download all quantization variants** (for model sweep benchmarking):
+
+```bash
+python -c "
+from huggingface_hub import snapshot_download
+snapshot_download(
+    repo_id='unsloth/Qwen3.5-9B-GGUF',
+    local_dir='/home/boxun/work/atlas/unsloth/Qwen3.5-9B-GGUF',
+    allow_patterns=['*.gguf']
+)
+"
+```
+
+Available quantizations (~3–6GB each):
+
+| File | Size | Quality |
+|------|------|---------|
+| `Qwen3.5-9B-UD-Q4_K_XL.gguf` | ~6GB | Best (default) |
+| `Qwen3.5-9B-UD-Q3_K_XL.gguf` | ~5GB | Good |
+| `Qwen3.5-9B-Q4_K_M.gguf` | ~5.7GB | Good |
+| `Qwen3.5-9B-Q4_K_S.gguf` | ~5.4GB | Good |
+| `Qwen3.5-9B-Q3_K_M.gguf` | ~4.7GB | Medium |
+| `Qwen3.5-9B-Q3_K_S.gguf` | ~4.3GB | Medium |
+| `Qwen3.5-9B-UD-Q2_K_XL.gguf` | ~4.1GB | Low |
+| `Qwen3.5-9B-UD-IQ2_M.gguf` | ~3.7GB | Low |
+| `Qwen3.5-9B-UD-IQ2_XXS.gguf` | ~3.2GB | Lowest |
 
 > **Note:** `huggingface-cli` may not be in PATH even if `huggingface_hub` is installed. Use the Python API above as a reliable alternative.
 
