@@ -91,10 +91,14 @@ Connects the nutrition assistant to a Clearpath Go2 robot via Qwen Agent tool-ca
 
 - **Navigation tools**: go to landmarks or detected objects (by name or coordinates), spin
 - **Detection tools**: `get_detected_objects` / `get_current_detected_objects` — query the object store
-- **Real-world detection**: `detector_node_real_world.py` runs YOLO on RealSense streams; press Enter to push detections to the robot as TF frames and make them navigable
+- **Real-world detection**: two switchable backends via `--detector yolo|vlm` (default: `yolo`):
+  - **YOLO**: `detector_node_real_world.py` runs YOLO on RealSense streams; press Enter to push detections to the robot as TF frames
+  - **VLM**: `scan_objects` saves the current RGB-D frame to disk; the agent LLM (Qwen3.5-9B multimodal) describes the scene inline; `register_objects` runs VLM grounding to get bounding boxes → depth backprojection → 3D camera-frame positions → TF landmarks
+- **Inline image input**: prefix a query with `@/path/to/image.jpg` to send an image directly to the LLM (no tool call made)
 - **Nutrition tool**: `get_meal_recommendation` wraps `nutri_rag`'s full pipeline (parse → gap analysis → GAT expansion → recommendation)
-- **LLM**: Qwen3.5-9B as the orchestration agent, deciding when to call navigation vs nutrition tools
+- **LLM/VLM**: Qwen3.5-9B with mmproj vision adapter as the orchestration agent, deciding when to call navigation vs vision vs nutrition tools
 - **Communication**: ZMQ REQ client → sends commands to robot_side
+- **Session reset**: detected landmarks are cleared automatically on each `robot_assistant.py` startup
 
 Set `DETECTION_MODE=real` on the operator PC to switch from simulation (port 5556 object server) to real-world mode (detections pushed from YOLO via port 5555).
 
@@ -349,6 +353,8 @@ bash scripts/start_server.sh
 # serves OpenAI-compatible endpoint on http://0.0.0.0:8080/v1
 ```
 
+`start_server.sh` automatically loads the mmproj vision adapter (`mmproj-BF16.gguf`) alongside the base model, enabling multimodal input for the VLM detector and inline image queries. Both files must be present in the same GGUF directory.
+
 ### 8) Run Each Subsystem
 
 ```bash
@@ -423,9 +429,12 @@ bash scripts/start_server.sh
 
 # --- Real world ---
 
-# Terminal 2 — robot assistant
+# Terminal 2 — robot assistant (YOLO detector, default)
 cd ~/work/atlas/mimir/nutri-atlas/robot_control
 python robot_assistant.py --robot-ip 192.168.0.114 --detection-mode real
+
+# Terminal 2 — robot assistant (VLM detector — open-vocab, uses LLM vision)
+python robot_assistant.py --robot-ip 192.168.0.114 --detection-mode real --detector vlm
 
 # Terminal 3a — manual detector: press Enter to push current frame to robot
 cd ~/work/atlas/mimir/nutri-atlas/robot_control/tools
@@ -467,8 +476,10 @@ python robot_assistant.py --robot-ip 127.0.0.1
 |-------|-----------|
 | Graph ML | PyTorch + PyTorch Geometric (GATv2Conv) |
 | Text Embeddings | Qwen3-Embedding-0.6B (1024d, last-token pooling) |
-| LLM Inference | Qwen3.5-9B via llama.cpp / llama-server |
+| LLM / VLM Inference | Qwen3.5-9B + mmproj vision adapter via llama.cpp / llama-server |
 | Agent Framework | Qwen Agent (tool-calling orchestration) |
+| Object Detection | YOLO (COCO 80-class) or VLM grounding (open-vocabulary) |
+| 3D Localisation | VLM bounding box → RealSense depth backprojection → camera-frame 3D |
 | Robot Communication | ZMQ → ROS2 (Clearpath Go2) |
 | Database | DuckDB (columnar storage + full-text search) |
 | Data Sources | USDA FoodData Central + USDA SR Legacy + FoodKG |
@@ -509,10 +520,12 @@ mimir/
 │
 ├── nutri-atlas/                   # Robot integration
 │   ├── robot_control/
-│   │   ├── robot_assistant.py     # Main chat loop + Qwen Agent
+│   │   ├── robot_assistant.py     # Main chat loop + Qwen Agent (--detector yolo|vlm)
+│   │   ├── data/                  # Saved RGB-D frame pairs for VLM grounding
 │   │   ├── tools/
 │   │   │   ├── navigate_tool.py   # Navigate to landmarks / coordinates
 │   │   │   ├── detect_tool.py     # navigate_and_scan, scan_objects, register_objects
+│   │   │   ├── detector_core.py   # YOLODetector, VLMDetector, Detection, FrameCache
 │   │   │   ├── object_tool.py     # Camera object detection queries
 │   │   │   ├── motion_tool.py     # Spin and move primitives
 │   │   │   ├── nutrition_tool.py  # Meal recommendation (wraps nutri_rag)
