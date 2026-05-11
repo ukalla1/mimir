@@ -1,4 +1,6 @@
 class Config:
+    SEED = 82  # best seed from search (MAP=0.399)
+
     EMB_DIM = 64
     HIDDEN = 64
     HEADS = 4
@@ -12,3 +14,7 @@ class Config:
 
     # Recipe graph integration (Phase 3 upgrade)
     INCLUDE_RECIPES = True
+
+    # Substitution supervision (Method 2)
+    LAMBDA_SUBS = 1.0
+    SUBS_CSV = "../HealthyFoodSubs/Input Data/final_substitution.csv"

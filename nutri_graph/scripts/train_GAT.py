@@ -1,4 +1,5 @@
 import json
+import random
 from pathlib import Path
 
 import numpy as np
@@ -15,6 +16,15 @@ from nutri_graph.visualization.training_plots import make_training_plots
 SNAPSHOT_EPOCHS = [1, 30, 60, 90]   # match Colab
 
 
+def set_seed(seed: int):
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+
+
 def ensure_dirs():
     Path("outputs").mkdir(exist_ok=True)
     Path("outputs/embeddings").mkdir(parents=True, exist_ok=True)
@@ -24,11 +34,13 @@ def ensure_dirs():
 
 
 if __name__ == "__main__":
+    set_seed(Config.SEED)
     ensure_dirs()
 
     data, meta = build_graph_from_db(
         "data/nutri_kb.duckdb",
         include_recipes=Config.INCLUDE_RECIPES,
+        subs_csv_path=Config.SUBS_CSV,
     )
 
     model = GATFrontEnd(
@@ -54,7 +66,8 @@ if __name__ == "__main__":
         config=Config,
         snapshot_mgr=snapshot_mgr,
         snapshot_epochs=SNAPSHOT_EPOCHS,
-        use_contrastive=False,  # matches your current notebook (contrastive commented out)
+        use_contrastive=False,
+        lambda_subs=Config.LAMBDA_SUBS,
     )
 
     results = trainer.train()

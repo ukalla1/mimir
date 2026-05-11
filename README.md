@@ -390,9 +390,24 @@ bash scripts/start_server.sh
 ### 8) Run Each Subsystem
 
 ```bash
-# A) NutriBench benchmark
+# A) NutriBench benchmark (single model)
 cd ~/work/atlas/mimir/nutri_rag
 python scripts/run_bench.py --mode v3 --nutrient protein --limit 200
+
+# A2) NutriBench model sweep — benchmark all downloaded quantizations in one run
+# Quick test (20 samples/model, ~2 min/model):
+python scripts/run_model_sweep.py --limit 20
+
+# Full run, protein only (~3–6 hours total):
+python scripts/run_model_sweep.py
+
+# Full run, all nutrients (~12–24 hours total):
+python scripts/run_model_sweep.py --nutrients carb protein fat energy
+
+# Specific models only:
+python scripts/run_model_sweep.py --models Qwen3.5-9B-UD-Q4_K_XL.gguf Qwen3.5-9B-Q4_K_M.gguf
+
+# Results saved to nutri_rag/results/model_sweep_{timestamp}/ with a comparison table.
 
 # B) PFoodReq benchmark (LLM server not required)
 cd ~/work/atlas/mimir/nutri_rag

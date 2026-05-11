@@ -51,6 +51,13 @@ class GATFrontEnd(nn.Module):
             nn.Linear(hidden, 1),
         )
 
+        # food substitution decoder
+        self.subs_mlp = nn.Sequential(
+            nn.Linear(2 * hidden, hidden),
+            nn.ReLU(),
+            nn.Linear(hidden, 1),
+        )
+
     def encode(self, node_ids, node_type, edge_index, edge_attr):
 
         h0 = self.node_emb(node_ids) + self.type_emb(node_type)
@@ -75,3 +82,7 @@ class GATFrontEnd(nn.Module):
     def decode_amount(self, h, edge_index):
         z = self.pair(h, edge_index)
         return self.amount_mlp(z).squeeze(-1)
+
+    def decode_subs(self, h, edge_index):
+        z = self.pair(h, edge_index)
+        return self.subs_mlp(z).squeeze(-1)
