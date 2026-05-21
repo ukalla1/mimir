@@ -223,6 +223,271 @@ python -m embodiedbench.main env=eb-alf model_name=Qwen3-VL-9B-GGUF model_type=r
 python -m embodiedbench.main env=eb-hab model_name=Qwen3-VL-9B-GGUF model_type=remote exp_name='qwen35_q4km_hab_full'
 ```
 
+### Step 5.9 — Switch to a different quantization (Q4_K_S, Q3_K_M, etc.)
+
+After getting one quantization's results, swap the model on llama-server and re-run. The container stays running — no Docker restart needed.
+
+Available quants in `/home/boxun/work/atlas/unsloth/Qwen3.5-9B-GGUF/`:
+```
+Qwen3.5-9B-Q4_K_M.gguf       ← current "default" smoke/full run
+Qwen3.5-9B-Q4_K_S.gguf       ← slightly smaller, faster
+Qwen3.5-9B-Q3_K_M.gguf       ← noticeable quality drop, faster
+Qwen3.5-9B-Q3_K_S.gguf
+Qwen3.5-9B-UD-Q4_K_XL.gguf   ← larger Q4, better quality
+Qwen3.5-9B-UD-Q3_K_XL.gguf
+Qwen3.5-9B-UD-Q2_K_XL.gguf
+Qwen3.5-9B-UD-IQ2_M.gguf     ← smallest, lowest quality
+Qwen3.5-9B-UD-IQ2_XXS.gguf
+```
+The mmproj file (`mmproj-BF16.gguf`) is shared across all quants — same vision adapter regardless of base-model quant.
+
+#### Process (example: switching to Q4_K_S)
+
+**1. Stop the current eval** (if running) — Ctrl+C in the container shell. Env vars, X server, symlink all persist.
+
+**2. Stop the current llama-server** — attach to its tmux on the host:
+```bash
+tmux attach -t qwen-server
+# Inside: Ctrl+C to stop. Then Ctrl+B D to detach (or exit).
+```
+
+Verify it's down:
+```bash
+ss -tlnp 2>/dev/null | grep 8080   # should be empty
+```
+
+**3. Start llama-server with the new quant**:
+```bash
+tmux attach -t qwen-server || tmux new -s qwen-server
+```
+Inside tmux:
+```bash
+~/softwares/llama.cpp/build/bin/llama-server \
+    --model /home/boxun/work/atlas/unsloth/Qwen3.5-9B-GGUF/Qwen3.5-9B-Q4_K_S.gguf \
+    --mmproj /home/boxun/work/atlas/unsloth/Qwen3.5-9B-GGUF/mmproj-BF16.gguf \
+    --port 8080 \
+    --host 0.0.0.0 \
+    --ctx-size 65536 \
+    --n-gpu-layers 999 \
+    --parallel 1 \
+    --chat-template-kwargs '{"enable_thinking":false}'
+```
+Only one line changed vs. Q4_K_M: `Q4_K_M.gguf` → `Q4_K_S.gguf`.
+
+Detach with Ctrl+B D once it's "main loop"-ready.
+
+**4. Verify the new model is loaded** (from host):
+```bash
+python3 -c "
+import urllib.request, json
+r = urllib.request.urlopen('http://localhost:8080/v1/models')
+print('Loaded:', json.loads(r.read())['data'][0]['id'])
+"
+# Expect: Loaded: Qwen3.5-9B-Q4_K_S.gguf
+```
+
+**5. Re-run EB-Alfred from inside the container** with a **new `exp_name`** so results don't overwrite the previous quant:
+
+Quick smoke first (recommended):
+```bash
+python -m embodiedbench.main \
+    env=eb-alf \
+    model_name=Qwen3-VL-9B-GGUF \
+    model_type=remote \
+    down_sample_ratio=0.1 \
+    eval_sets='[base]' \
+    exp_name='qwen35_q4ks_alf_smoke' \
+    2>&1 | tee /opt/embodiedbench/results/alf_smoke_q4ks.log
+```
+~5-15 min. Confirms the new model produces valid JSON before committing to the full run.
+
+Then the full run:
+```bash
+python -m embodiedbench.main \
+    env=eb-alf \
+    model_name=Qwen3-VL-9B-GGUF \
+    model_type=remote \
+    exp_name='qwen35_q4ks_alf_full' \
+    2>&1 | tee /opt/embodiedbench/results/alf_full_q4ks.log
+```
+
+#### What changes vs. what stays the same
+
+| Component | Q4_K_M run | Q4_K_S run |
+|-----------|------------|------------|
+| llama-server `--model` flag | `Q4_K_M.gguf` | **`Q4_K_S.gguf`** |
+| llama-server port | 8080 | 8080 (same) |
+| Docker container | running | running (no restart) |
+| In-container env vars + X server + symlink | as-is | as-is (same) |
+| `model_name=` argument to eval | `Qwen3-VL-9B-GGUF` | `Qwen3-VL-9B-GGUF` (same — just a dispatch hint) |
+| `exp_name=` argument | `qwen35_q4km_alf_full` | **`qwen35_q4ks_alf_full`** |
+| Log path | `alf_full.log` | `alf_full_q4ks.log` |
+
+`model_name` does NOT need to change because it's just the substring-match dispatch hint for `remote_model.py`. The actual loaded model is whatever the host's llama-server is serving — controlled entirely by its `--model` flag.
+
+#### Result location after multi-quant runs
+
+```
+/home/boxun/work/atlas/mimir/EmbodiedBench/results/
+├── eb_alfred/
+│   ├── Qwen3-VL-9B-GGUF_qwen35_q4km_alf_full/    ← Q4_K_M
+│   ├── Qwen3-VL-9B-GGUF_qwen35_q4ks_alf_full/    ← Q4_K_S
+│   └── Qwen3-VL-9B-GGUF_qwen35_q3km_alf_full/    ← Q3_K_M (if you do more)
+├── alf_full.log               ← Q4_K_M log
+├── alf_full_q4ks.log          ← Q4_K_S log
+└── alf_full_q3km.log
+```
+
+A/B / multi-way comparison across quantizations is then a matter of reading the per-subset `final_results` JSONs from each directory.
+
+#### Suggested naming convention for `exp_name`
+
+`qwen35_{quant}_{env}_{scope}` where:
+- `quant` = `q4km`, `q4ks`, `q3km`, `q3ks`, `udq4kxl`, `udiq2m`, etc.
+- `env` = `alf` or `hab`
+- `scope` = `smoke`, `full`, or `subset_<name>`
+
+Examples: `qwen35_q4ks_alf_smoke`, `qwen35_udq4kxl_hab_full`, `qwen35_iq2m_alf_subset_spatial`.
+
+### Step 5.10 — Fresh restart from scratch (after exiting the container)
+
+This is the **copy-paste reference** for coming back to this work after `exit`-ing the container. It consolidates Steps 5.1 → 5.5 into one block so you don't have to scroll between sections. Assumes the `embench:alfhab` image and the host's llama-server build are still present (they are, since both live outside the container).
+
+Pick which quantization you want for this run by editing the `MODEL_FILE` variable at the top.
+
+#### A) On the HOST — start llama-server in tmux
+
+```bash
+# 1. Check GPU is free (or at least has ~10-15 GB free)
+nvidia-smi
+
+# 2. Start llama-server in tmux (replace MODEL_FILE for the quant you want)
+MODEL_FILE=Qwen3.5-9B-Q4_K_M.gguf    # or Q4_K_S, UD-IQ2_M, etc.
+
+tmux new -s qwen-server -d \
+    "~/softwares/llama.cpp/build/bin/llama-server \
+        --model /home/boxun/work/atlas/unsloth/Qwen3.5-9B-GGUF/$MODEL_FILE \
+        --mmproj /home/boxun/work/atlas/unsloth/Qwen3.5-9B-GGUF/mmproj-BF16.gguf \
+        --port 8080 --host 0.0.0.0 \
+        --ctx-size 65536 --n-gpu-layers 999 --parallel 1 \
+        --chat-template-kwargs '{\"enable_thinking\":false}'"
+
+# 3. Wait ~10 seconds, then verify server is up
+sleep 10
+python3 -c "
+import urllib.request, json
+print('Loaded:', json.loads(urllib.request.urlopen('http://localhost:8080/v1/models').read())['data'][0]['id'])
+"
+# Expected: Loaded: Qwen3.5-9B-Q4_K_M.gguf (or whichever you set)
+```
+
+#### B) On the HOST — start the container
+
+```bash
+docker run --runtime=nvidia -e NVIDIA_VISIBLE_DEVICES=all \
+  -e NVIDIA_DRIVER_CAPABILITIES=all \
+  -it --rm \
+  --name embench-eval \
+  --add-host=host.docker.internal:host-gateway \
+  --device=/dev/tty0 --device=/dev/tty1 --device=/dev/tty2 --device=/dev/tty3 \
+  --device=/dev/tty4 --device=/dev/tty5 --device=/dev/tty6 --device=/dev/tty7 \
+  -v /home/boxun/work/atlas/mimir/EmbodiedBench/embodiedbench/envs/eb_alfred/data/json_2.1.0:/opt/embodiedbench/embodiedbench/envs/eb_alfred/data/json_2.1.0 \
+  -v /home/boxun/work/atlas/mimir/EmbodiedBench/results:/opt/embodiedbench/results \
+  --shm-size=8g \
+  embench:alfhab
+```
+
+#### C) Inside the CONTAINER — full setup (one paste)
+
+```bash
+# 1. Manual patches (until Phase 7 bakes them into the image)
+mv /usr/lib/xorg/modules/drivers/modesetting_drv.so \
+   /usr/lib/xorg/modules/drivers/modesetting_drv.so.disabled
+
+sed -i 's|Xorg -noreset|Xorg -noreset -ac|' \
+    /opt/embodiedbench/embodiedbench/envs/eb_alfred/scripts/startx.py
+
+[ -d /opt/embodiedbench/running ] && mv /opt/embodiedbench/running /opt/embodiedbench/running.old
+ln -s /opt/embodiedbench/results /opt/embodiedbench/running
+
+# 2. Conda env + env vars
+source /opt/conda/etc/profile.d/conda.sh
+conda activate embench
+export remote_url=http://host.docker.internal:8080/v1
+export OPENAI_API_KEY=EMPTY
+
+# 3. Confirm network reachability to llama-server
+python3 -c "
+import urllib.request, json
+print('Container sees:', json.loads(urllib.request.urlopen('http://host.docker.internal:8080/v1/models').read())['data'][0]['id'])
+"
+
+# 4. Start headless X server (only needed for EB-Alfred; EB-Habitat doesn't need it)
+python -m embodiedbench.envs.eb_alfred.scripts.startx 1 &
+sleep 3
+ls /tmp/.X11-unix/   # expect: X1
+export DISPLAY=:1
+```
+
+#### D) Inside the CONTAINER — run the eval
+
+Pick one based on what you want to test, and **edit `exp_name`** to match the actual quant + env + scope you chose:
+
+```bash
+# EB-Alfred smoke (~10-15 min, 5 eps base subset)
+python -m embodiedbench.main \
+    env=eb-alf \
+    model_name=Qwen3-VL-9B-GGUF \
+    model_type=remote \
+    down_sample_ratio=0.1 \
+    eval_sets='[base]' \
+    exp_name='qwen35_q4km_alf_smoke' \
+    2>&1 | tee /opt/embodiedbench/results/alf_smoke_q4km.log
+
+# EB-Alfred full (~5-10 hours, all subsets)
+python -m embodiedbench.main \
+    env=eb-alf \
+    model_name=Qwen3-VL-9B-GGUF \
+    model_type=remote \
+    exp_name='qwen35_q4km_alf_full' \
+    2>&1 | tee /opt/embodiedbench/results/alf_full_q4km.log
+
+# EB-Habitat smoke (no DISPLAY needed; can run alongside or instead of alf)
+python -m embodiedbench.main \
+    env=eb-hab \
+    model_name=Qwen3-VL-9B-GGUF \
+    model_type=remote \
+    down_sample_ratio=0.1 \
+    eval_sets='[base]' \
+    exp_name='qwen35_q4km_hab_smoke' \
+    2>&1 | tee /opt/embodiedbench/results/hab_smoke_q4km.log
+```
+
+#### Quick mental model
+
+| Scenario | What to do |
+|----------|------------|
+| Coming back after exit, do new run | Sections A → B → C → D (this whole step) |
+| Container alive, swap quant only | Step 5.9 (just A again + restart eval in container) |
+| Server died, container alive | Re-run section A inside the existing tmux, then re-run D in the container |
+| Just exiting / wrapping up | Nothing — `exit` the container, optionally Ctrl+C the llama-server tmux |
+
+#### What survives across container exits (already on host)
+
+- All eval results: `/home/boxun/work/atlas/mimir/EmbodiedBench/results/`
+- All logs: `/home/.../results/*.log`
+- The `embench:alfhab` image (Phase 6 rebuild)
+- llama.cpp build + all Qwen3.5 GGUF files
+- This plan doc + other plan docs
+
+#### What you have to redo each container start
+
+- The 4 manual patches in section C step 1 (modesetting, -ac, symlink, conda activate)
+- The 3 env vars (`remote_url`, `OPENAI_API_KEY`, `DISPLAY`)
+- The X server startup
+
+These are baked into section C as a single paste-able block, so it's a 30-second redo. **Phase 7** (in `plans/embodiedbench_docker_setup.md`) would eliminate the first 3 of those by baking them into the image — do it whenever the manual repetition starts feeling tedious.
+
 ## Issues encountered during Phase 5 setup (resolved)
 
 **Issue 5.1 — Xorg crashes in modesetting driver's glamor init**
