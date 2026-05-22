@@ -37,6 +37,7 @@ from eval_food_subs import (
 )
 
 DB       = str(NUTRI_GRAPH_ROOT / "data" / "nutri_kb.duckdb")
+SUBS_CSV = str(NUTRI_GRAPH_ROOT / "data" / "subs_train.csv")
 HS_ROOT  = str(MIMIR_ROOT / "HealthyFoodSubs")
 TEXT_EMB = str(MIMIR_ROOT / "nutri_rag" / "data" / "embeddings" / "food_text_embeddings.npy")
 TEXT_IDS = str(MIMIR_ROOT / "nutri_rag" / "data" / "embeddings" / "food_fdc_ids.npy")
@@ -83,7 +84,7 @@ def main():
         data, meta = build_graph_from_db(
             DB,
             include_recipes=Config.INCLUDE_RECIPES,
-            subs_csv_path=Config.SUBS_CSV,
+            subs_csv_path=SUBS_CSV,
         )
     data = data.to(device)
     print(f"  {data.num_nodes} nodes, {data.edge_index.size(1)} edges")

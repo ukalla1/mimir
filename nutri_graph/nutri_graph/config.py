@@ -17,4 +17,5 @@ class Config:
 
     # Substitution supervision (Method 2)
     LAMBDA_SUBS = 1.0
-    SUBS_CSV = "../HealthyFoodSubs/Input Data/final_substitution.csv"
+    SUBS_CSV      = "data/subs_train.csv"      # train split — run scripts/split_subs.py first
+    SUBS_TEST_CSV = "data/subs_test_foods.csv" # our test query foods

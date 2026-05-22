@@ -160,7 +160,7 @@ python -m embodiedbench.main \
     model_name=Qwen3-VL-9B-GGUF \
     model_type=remote \
     down_sample_ratio=0.1 \
-    exp_name='qwen35_q4km_alf_smoke'
+    exp_name='qwen35_q4ks_alf_smoke'
 ```
 
 Note: `model_name=Qwen3-VL-9B-GGUF` is the **dispatch trick** explained earlier — the substring `Qwen3-VL` makes `remote_model.py` route through the OpenAI client. The actual loaded model is Qwen3.5-9B.
@@ -193,7 +193,7 @@ python -m embodiedbench.main \
     model_name=Qwen3-VL-9B-GGUF \
     model_type=remote \
     down_sample_ratio=0.1 \
-    exp_name='qwen35_q4km_hab_smoke'
+    exp_name='qwen35_q4ks_hab_smoke'
 ```
 
 EB-Habitat doesn't need DISPLAY (uses EGL off-screen). Same dispatch logic.
@@ -219,8 +219,8 @@ The EB-Habitat smoke was stopped after `spatial_relationship` to skip ahead to f
 
 Drop `down_sample_ratio` (defaults to `1.0`, full dataset):
 ```bash
-python -m embodiedbench.main env=eb-alf model_name=Qwen3-VL-9B-GGUF model_type=remote exp_name='qwen35_q4km_alf_full'
-python -m embodiedbench.main env=eb-hab model_name=Qwen3-VL-9B-GGUF model_type=remote exp_name='qwen35_q4km_hab_full'
+python -m embodiedbench.main env=eb-alf model_name=Qwen3-VL-9B-GGUF model_type=remote exp_name='qwen35_q4ks_alf_full'
+python -m embodiedbench.main env=eb-hab model_name=Qwen3-VL-9B-GGUF model_type=remote exp_name='qwen35_q4ks_hab_full'
 ```
 
 ### Step 5.9 — Switch to a different quantization (Q4_K_S, Q3_K_M, etc.)
@@ -441,16 +441,16 @@ python -m embodiedbench.main \
     model_type=remote \
     down_sample_ratio=0.1 \
     eval_sets='[base]' \
-    exp_name='qwen35_q4km_alf_smoke' \
-    2>&1 | tee /opt/embodiedbench/results/alf_smoke_q4km.log
+    exp_name='qwen35_q4ks_alf_smoke' \
+    2>&1 | tee /opt/embodiedbench/results/alf_smoke_q4ks.log
 
 # EB-Alfred full (~5-10 hours, all subsets)
 python -m embodiedbench.main \
     env=eb-alf \
     model_name=Qwen3-VL-9B-GGUF \
     model_type=remote \
-    exp_name='qwen35_q4km_alf_full' \
-    2>&1 | tee /opt/embodiedbench/results/alf_full_q4km.log
+    exp_name='qwen35_q4ks_alf_full' \
+    2>&1 | tee /opt/embodiedbench/results/alf_full_q4ks.log
 
 # EB-Habitat smoke (no DISPLAY needed; can run alongside or instead of alf)
 python -m embodiedbench.main \
@@ -459,8 +459,8 @@ python -m embodiedbench.main \
     model_type=remote \
     down_sample_ratio=0.1 \
     eval_sets='[base]' \
-    exp_name='qwen35_q4km_hab_smoke' \
-    2>&1 | tee /opt/embodiedbench/results/hab_smoke_q4km.log
+    exp_name='qwen35_q4ks_hab_smoke' \
+    2>&1 | tee /opt/embodiedbench/results/hab_smoke_q4ks.log
 ```
 
 #### Quick mental model
@@ -582,7 +582,7 @@ python -m embodiedbench.main \
     env=eb-alf \
     model_name=Qwen3-VL-9B-GGUF \
     model_type=remote \
-    exp_name='qwen35_q4km_alf_full' \
+    exp_name='qwen35_q4ks_alf_full' \
     2>&1 | tee /opt/embodiedbench/results/alf_full.log
 ```
 

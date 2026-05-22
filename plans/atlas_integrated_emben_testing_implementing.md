@@ -26,7 +26,7 @@ This doc tracks the **implementation** of Direction B (persistent-memory port in
 ```
 /home/boxun/work/atlas/mimir/
 ├── EmbodiedBench/                          ← upstream, untouched (baseline source of truth)
-│   └── results/eb_alfred/.../qwen35_q4km_alf_full/   ← Phase 5 baseline
+│   └── results/eb_alfred/.../qwen35_q4ks_alf_full/   ← Phase 5 baseline
 └── EmbodiedBench_atlasmodified/            ← Direction B fork
     ├── embodiedbench/                      ← edited files live here
     │   ├── planner/vlm_planner.py          ← MODIFIED (memory store + injection)
@@ -177,15 +177,14 @@ python -m embodiedbench.main \
     model_name=Qwen3-VL-9B-GGUF \
     model_type=remote \
     down_sample_ratio=0.1 \
-    eval_sets=[base,common_sense,complex_instruction,visual_appearance,long_horizon,spatial_relationship] \
-    exp_name='qwen35_q4km_alf_smoke_memB'
+    exp_name='qwen35_q4ks_alf_smoke_memB'
 
 # Full (matches Phase 5 baseline scope, ~few hours, 300 episodes)
 python -m embodiedbench.main \
     env=eb-alf \
     model_name=Qwen3-VL-9B-GGUF \
     model_type=remote \
-    exp_name='qwen35_q4km_alf_full_memB'
+    exp_name='qwen35_q4ks_alf_full_memB'
 
 # Ablation (memory OFF, same fork) — useful if you suspect prompt-format issues are confounding
 python -m embodiedbench.main \
@@ -193,10 +192,17 @@ python -m embodiedbench.main \
     model_name=Qwen3-VL-9B-GGUF \
     model_type=remote \
     persistent_memory=False \
-    exp_name='qwen35_q4km_alf_full_memB_ablation'
+    exp_name='qwen35_q4ks_alf_full_memB_ablation'
 ```
 
+**Note on `eval_sets`:** the modified `eb-alf.yaml` has `eval_sets: []` and the evaluator falls back to `ValidEvalSets` (all 6 subsets, in canonical order: `base`, `common_sense`, `complex_instruction`, `spatial`, `visual_appearance`, `long_horizon`) — see [eb_alfred_evaluator.py:44-47](../../work/atlas/mimir/EmbodiedBench/embodiedbench/evaluator/eb_alfred_evaluator.py#L44-L47). So we don't need to pass `eval_sets=[...]` on the CLI; passing it explicitly is risky because typoing a subset name (e.g. `spatial_relationship`) trips an `AssertionError` mid-run after several subsets already finished. Only pass it when you genuinely want a single subset, e.g. `eval_sets=[spatial]` to fill in a missing one.
+
 `persistent_memory=True` is the default in the modified `eb-alf.yaml`, so the standard runs don't need to pass it on the CLI. Override on the CLI to ablate.
+
+**Note on overwriting:** EmbodiedBench writes to `running/eb_alfred/{model}_{exp_name}/{subset}/` and silently overwrites existing files at the same path ([EBAlfEnv.py:388-389](../../work/atlas/mimir/EmbodiedBench/embodiedbench/envs/eb_alfred/EBAlfEnv.py#L388-L389) only `os.makedirs` if missing, no fail-if-exists). So:
+- Re-running with the same `exp_name` and overlapping subsets **clobbers** the prior run's results.
+- Re-running with the same `exp_name` but a different subset (e.g. `eval_sets=[spatial]` to fill in a missing one) leaves the other subsets untouched — only the named subset's directory is overwritten.
+- Use a new `exp_name` (or `mv` the old dir to `..._exp_name.v1`) before re-running if you want to preserve the previous results.
 
 ### Part F — Verify the memory injection is actually happening
 
@@ -220,14 +226,14 @@ Once a full memory-on run lives in `EmbodiedBench_atlasmodified/results/eb_alfre
 ```bash
 # Smoke vs. smoke
 python /home/boxun/work/atlas/mimir/nutri-atlas/scripts/embench_results_analysis.py --compare \
-    /home/boxun/work/atlas/mimir/EmbodiedBench/results/eb_alfred/Qwen3-VL-9B-GGUF_qwen35_q4km_alf_smoke \
-    /home/boxun/work/atlas/mimir/EmbodiedBench_atlasmodified/results/eb_alfred/Qwen3-VL-9B-GGUF_qwen35_q4km_alf_smoke_memB
+    /home/boxun/work/atlas/mimir/EmbodiedBench/results/eb_alfred/Qwen3-VL-9B-GGUF_qwen35_q4ks_alf_smoke \
+    /home/boxun/work/atlas/mimir/EmbodiedBench_atlasmodified/results/eb_alfred/Qwen3-VL-9B-GGUF_qwen35_q4ks_alf_smoke_memB
 
 # Full vs. full (the real comparison)
 python /home/boxun/work/atlas/mimir/nutri-atlas/scripts/embench_results_analysis.py --compare \
-    /home/boxun/work/atlas/mimir/EmbodiedBench/results/eb_alfred/Qwen3-VL-9B-GGUF_qwen35_q4km_alf_full \
-    /home/boxun/work/atlas/mimir/EmbodiedBench_atlasmodified/results/eb_alfred/Qwen3-VL-9B-GGUF_qwen35_q4km_alf_full_memB \
-    --output /home/boxun/work/atlas/mimir/EmbodiedBench_atlasmodified/results/comparisons/q4km_baseline_vs_memB.txt
+    /home/boxun/work/atlas/mimir/EmbodiedBench/results/eb_alfred/Qwen3-VL-9B-GGUF_qwen35_q4ks_alf_full \
+    /home/boxun/work/atlas/mimir/EmbodiedBench_atlasmodified/results/eb_alfred/Qwen3-VL-9B-GGUF_qwen35_q4ks_alf_full_memB \
+    --output /home/boxun/work/atlas/mimir/EmbodiedBench_atlasmodified/results/comparisons/q4ks_baseline_vs_memB.txt
 ```
 
 Confirm the exact baseline directory name first with `ls /home/boxun/work/atlas/mimir/EmbodiedBench/results/eb_alfred/` — the analysis script's default `DEFAULT_RUN` points at the IQ2_M run, not Q4_K_M.

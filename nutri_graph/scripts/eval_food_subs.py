@@ -29,11 +29,12 @@ SCRIPT_DIR       = os.path.dirname(os.path.abspath(__file__))
 NUTRI_GRAPH_ROOT = os.path.abspath(os.path.join(SCRIPT_DIR, ".."))
 MIMIR_ROOT       = os.path.abspath(os.path.join(NUTRI_GRAPH_ROOT, ".."))
 
-DEFAULT_HS_ROOT  = os.path.join(MIMIR_ROOT, "HealthyFoodSubs")
-DEFAULT_DB       = os.path.join(NUTRI_GRAPH_ROOT, "data", "nutri_kb.duckdb")
-DEFAULT_GAT_EMB  = os.path.join(NUTRI_GRAPH_ROOT, "outputs", "embeddings", "food_embeddings.npy")
-DEFAULT_TEXT_EMB = os.path.join(MIMIR_ROOT, "nutri_rag", "data", "embeddings", "food_text_embeddings.npy")
-DEFAULT_TEXT_IDS = os.path.join(MIMIR_ROOT, "nutri_rag", "data", "embeddings", "food_fdc_ids.npy")
+DEFAULT_HS_ROOT   = os.path.join(MIMIR_ROOT, "HealthyFoodSubs")
+DEFAULT_DB        = os.path.join(NUTRI_GRAPH_ROOT, "data", "nutri_kb.duckdb")
+DEFAULT_GAT_EMB   = os.path.join(NUTRI_GRAPH_ROOT, "outputs", "embeddings", "food_embeddings.npy")
+DEFAULT_TEXT_EMB  = os.path.join(MIMIR_ROOT, "nutri_rag", "data", "embeddings", "food_text_embeddings.npy")
+DEFAULT_TEXT_IDS  = os.path.join(MIMIR_ROOT, "nutri_rag", "data", "embeddings", "food_fdc_ids.npy")
+DEFAULT_TEST_FOODS = os.path.join(NUTRI_GRAPH_ROOT, "data", "subs_test_foods.csv")
 
 SR_OFFSET = 1_000_000  # fdc_id = SR_OFFSET + NDB_No for SR Legacy foods
 
@@ -326,6 +327,8 @@ def main():
     parser.add_argument("--no-filter",    action="store_true",      help="Disable food category filtering")
     parser.add_argument("--top-k-text",   type=int, default=20,     help="Initial text candidates for V3-style (default: 20)")
     parser.add_argument("--gat-neighbors",type=int, default=5,      help="GAT neighbors per candidate for V3-style (default: 5)")
+    parser.add_argument("--test-foods",   default=DEFAULT_TEST_FOODS,
+                        help="CSV with 'id' column of test query food URIs (default: our 80/10/10 split)")
     args = parser.parse_args()
 
     # Prerequisite checks
@@ -351,6 +354,12 @@ def main():
     # Load ground truth
     print("Loading HealthyFoodSubs data...")
     subs_dict, test_uris, category_map = load_hs_data(args.hs_root)
+    if os.path.exists(args.test_foods):
+        import pandas as _pd
+        test_uris = _pd.read_csv(args.test_foods)["id"].tolist()
+        print(f"  Test foods source:   {args.test_foods}")
+    else:
+        print(f"  Warning: {args.test_foods} not found, using GAT_foods_2_test.csv")
     all_hs_uris = set(subs_dict) | {s for v in subs_dict.values() for s in v}
     n_pairs = sum(len(v) for v in subs_dict.values())
     print(f"  Ground truth pairs:  {n_pairs}")
