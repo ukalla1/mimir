@@ -35,6 +35,7 @@ class Trainer:
         contrast_bs: int = 512,
         contrast_neg_k: int = 32,
         contrast_tau: float = 0.2,
+        lambda_subs: float = 1.0,
     ):
         self.model = model
         self.data = data
@@ -48,6 +49,7 @@ class Trainer:
         self.contrast_bs = contrast_bs
         self.contrast_neg_k = contrast_neg_k
         self.contrast_tau = contrast_tau
+        self.lambda_subs = lambda_subs
 
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -102,6 +104,17 @@ class Trainer:
         self.y_mean = y_train.mean()
         self.y_std = y_train.std().clamp_min(1e-6)
 
+        # Substitution supervision (optional)
+        self.subs_pos_edge_index = None
+        self.train_subs_idx = None
+        if hasattr(data, "subs_pos_edge_index") and data.subs_pos_edge_index is not None:
+            self.subs_pos_edge_index = data.subs_pos_edge_index.to(self.device)
+            n_subs = self.subs_pos_edge_index.size(1)
+            perm_s = torch.randperm(n_subs, device=self.device)
+            self.train_subs_idx = perm_s[:int(0.80 * n_subs)]
+            print(f"[trainer] Substitution supervision: {n_subs} pairs, "
+                  f"{len(self.train_subs_idx)} training")
+
         # Best model tracking (match Colab)
         self.best_val_rmse = float("inf")
         self.best_state = None
@@ -111,6 +124,12 @@ class Trainer:
 
     def destandardize(self, y_stdspace: torch.Tensor) -> torch.Tensor:
         return y_stdspace * self.y_std + self.y_mean
+
+    def _sample_neg_food_food(self, n: int) -> torch.Tensor:
+        """Random food-food pairs — virtually always true negatives (1841 pos vs ~64M possible)."""
+        src = torch.randint(0, self.num_foods, (n,), device=self.device)
+        dst = torch.randint(0, self.num_foods, (n,), device=self.device)
+        return torch.stack([src, dst])
 
     # -------- Colab-faithful negative sampling --------
     def sample_negative_bipartite(self, num_samples: int) -> torch.Tensor:
@@ -202,6 +221,17 @@ class Trainer:
 
             # Colab default: loss = loss_amt + 0.4*loss_exist
             loss = loss_amt + 0.4 * loss_exist
+
+            if self.subs_pos_edge_index is not None:
+                pos_subs = self.subs_pos_edge_index[:, self.train_subs_idx]
+                neg_subs = self._sample_neg_food_food(pos_subs.size(1))
+                loss_subs = (
+                    self.bce(self.model.decode_subs(h, pos_subs),
+                             torch.ones(pos_subs.size(1), device=self.device)) +
+                    self.bce(self.model.decode_subs(h, neg_subs),
+                             torch.zeros(neg_subs.size(1), device=self.device))
+                )
+                loss = loss + self.lambda_subs * loss_subs
 
             # (Optional) contrastive hook — left disabled by default (matches your notebook)
             # if self.use_contrastive:

@@ -164,7 +164,7 @@ def main():
 
     os.chdir(LM_EVAL_DIR)
 
-    from lm_eval.tasks.manager import TaskManager
+    from lm_eval.tasks import TaskManager
     task_manager = TaskManager(include_path=task_src)
 
     results = lm_eval.simple_evaluate(

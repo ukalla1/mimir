@@ -12,20 +12,22 @@
 #   qwen_test/start_server.sh  (identical config but parallel=3)
 set -e
 
-MODEL_PATH="/home/boxun/work/atlas/unsloth/Qwen3.5-9B-GGUF/Qwen3.5-9B-UD-Q4_K_XL.gguf"
+MODEL_PATH="${1:-/home/boxun/work/atlas/unsloth/Qwen3.5-9B-GGUF/Qwen3.5-9B-UD-Q4_K_XL.gguf}"
+MMPROJ_PATH="/home/boxun/work/atlas/unsloth/Qwen3.5-9B-GGUF/mmproj-BF16.gguf"
 PORT=8080
 
 echo "==> Starting llama-server for nutri_rag assistant (port $PORT) ..."
-echo "    Model: $MODEL_PATH"
+echo "    Model: $(basename $MODEL_PATH)"
 echo "    Thinking: enabled"
 echo "    Press Ctrl+C to stop."
 echo ""
 
 ~/softwares/llama.cpp/llama-server \
     --model "$MODEL_PATH" \
+    --mmproj "$MMPROJ_PATH" \
     --port "$PORT" \
     --host 0.0.0.0 \
-    --ctx-size 32768 \
+    --ctx-size 65536 \
     --n-gpu-layers 999 \
     --parallel 1 \
     --chat-template-kwargs '{"enable_thinking":false}'

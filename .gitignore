@@ -15,11 +15,15 @@ nutri_rag/results/
 nutri_rag/data/embeddings/
 
 nutri-atlas/weights
-
+nutri-atlas/robot_control/data/
 foodkg.github.io/
 PFoodReq/
 
 .codex
 .vscode/
 .claude/
-plans/
+
+HealthyFoodSubs/
+
+EmbodiedBench/
+EmbodiedBench_atlasmodified/

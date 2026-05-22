@@ -1,4 +1,6 @@
 class Config:
+    SEED = 82  # best seed from search (MAP=0.399)
+
     EMB_DIM = 64
     HIDDEN = 64
     HEADS = 4
@@ -12,3 +14,8 @@ class Config:
 
     # Recipe graph integration (Phase 3 upgrade)
     INCLUDE_RECIPES = True
+
+    # Substitution supervision (Method 2)
+    LAMBDA_SUBS = 1.0
+    SUBS_CSV      = "data/subs_train.csv"      # train split — run scripts/split_subs.py first
+    SUBS_TEST_CSV = "data/subs_test_foods.csv" # our test query foods

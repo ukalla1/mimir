@@ -91,10 +91,14 @@ Connects the nutrition assistant to a Clearpath Go2 robot via Qwen Agent tool-ca
 
 - **Navigation tools**: go to landmarks or detected objects (by name or coordinates), spin
 - **Detection tools**: `get_detected_objects` / `get_current_detected_objects` — query the object store
-- **Real-world detection**: `detector_node_real_world.py` runs YOLO on RealSense streams; press Enter to push detections to the robot as TF frames and make them navigable
+- **Real-world detection**: two switchable backends via `--detector yolo|vlm` (default: `yolo`):
+  - **YOLO**: `detector_node_real_world.py` runs YOLO on RealSense streams; press Enter to push detections to the robot as TF frames
+  - **VLM**: `scan_objects` saves the current RGB-D frame to disk; the agent LLM (Qwen3.5-9B multimodal) describes the scene inline; `register_objects` runs VLM grounding to get bounding boxes → depth backprojection → 3D camera-frame positions → TF landmarks
+- **Inline image input**: prefix a query with `@/path/to/image.jpg` to send an image directly to the LLM (no tool call made)
 - **Nutrition tool**: `get_meal_recommendation` wraps `nutri_rag`'s full pipeline (parse → gap analysis → GAT expansion → recommendation)
-- **LLM**: Qwen3.5-9B as the orchestration agent, deciding when to call navigation vs nutrition tools
+- **LLM/VLM**: Qwen3.5-9B with mmproj vision adapter as the orchestration agent, deciding when to call navigation vs vision vs nutrition tools
 - **Communication**: ZMQ REQ client → sends commands to robot_side
+- **Session reset**: detected landmarks are cleared automatically on each `robot_assistant.py` startup
 
 Set `DETECTION_MODE=real` on the operator PC to switch from simulation (port 5556 object server) to real-world mode (detections pushed from YOLO via port 5555).
 
@@ -198,6 +202,9 @@ pip install duckdb pandas scikit-learn umap-learn plotly kaleido \
 
 # Install nutri-atlas dependencies
 pip install qwen-agent pyzmq pyyaml json5 requests transformers
+
+# Install lm-evaluation-harness with API support (required for NutriBench benchmarks)
+pip install lm-eval[api]
 ```
 
 Notes:
@@ -319,7 +326,7 @@ Verify the build succeeded:
 
 #### 6b: Download Qwen3.5-9B GGUF
 
-`start_server.sh` expects the model at `/home/boxun/work/atlas/unsloth/Qwen3.5-9B-GGUF/Qwen3.5-9B-UD-Q4_K_XL.gguf`. Download only the `UD-Q4_K_XL` quantization (~6GB), which gives good quality/speed on a 24GB+ GPU:
+Two files are always required — the base model and the mmproj vision adapter:
 
 ```bash
 mkdir -p /home/boxun/work/atlas/unsloth
@@ -329,10 +336,39 @@ from huggingface_hub import snapshot_download
 snapshot_download(
     repo_id='unsloth/Qwen3.5-9B-GGUF',
     local_dir='/home/boxun/work/atlas/unsloth/Qwen3.5-9B-GGUF',
-    allow_patterns=['*UD-Q4_K_XL*']
+    allow_patterns=['*UD-Q4_K_XL*', 'mmproj-BF16.gguf']
 )
 "
 ```
+
+This downloads `Qwen3.5-9B-UD-Q4_K_XL.gguf` (~6GB, default model) and `mmproj-BF16.gguf` (~922MB, required for vision/VLM mode).
+
+**Optional — download all quantization variants** (for model sweep benchmarking):
+
+```bash
+python -c "
+from huggingface_hub import snapshot_download
+snapshot_download(
+    repo_id='unsloth/Qwen3.5-9B-GGUF',
+    local_dir='/home/boxun/work/atlas/unsloth/Qwen3.5-9B-GGUF',
+    allow_patterns=['*.gguf']
+)
+"
+```
+
+Available quantizations (~3–6GB each):
+
+| File | Size | Quality |
+|------|------|---------|
+| `Qwen3.5-9B-UD-Q4_K_XL.gguf` | ~6GB | Best (default) |
+| `Qwen3.5-9B-UD-Q3_K_XL.gguf` | ~5GB | Good |
+| `Qwen3.5-9B-Q4_K_M.gguf` | ~5.7GB | Good |
+| `Qwen3.5-9B-Q4_K_S.gguf` | ~5.4GB | Good |
+| `Qwen3.5-9B-Q3_K_M.gguf` | ~4.7GB | Medium |
+| `Qwen3.5-9B-Q3_K_S.gguf` | ~4.3GB | Medium |
+| `Qwen3.5-9B-UD-Q2_K_XL.gguf` | ~4.1GB | Low |
+| `Qwen3.5-9B-UD-IQ2_M.gguf` | ~3.7GB | Low |
+| `Qwen3.5-9B-UD-IQ2_XXS.gguf` | ~3.2GB | Lowest |
 
 > **Note:** `huggingface-cli` may not be in PATH even if `huggingface_hub` is installed. Use the Python API above as a reliable alternative.
 
@@ -349,12 +385,29 @@ bash scripts/start_server.sh
 # serves OpenAI-compatible endpoint on http://0.0.0.0:8080/v1
 ```
 
+`start_server.sh` automatically loads the mmproj vision adapter (`mmproj-BF16.gguf`) alongside the base model, enabling multimodal input for the VLM detector and inline image queries. Both files must be present in the same GGUF directory.
+
 ### 8) Run Each Subsystem
 
 ```bash
-# A) NutriBench benchmark
+# A) NutriBench benchmark (single model)
 cd ~/work/atlas/mimir/nutri_rag
 python scripts/run_bench.py --mode v3 --nutrient protein --limit 200
+
+# A2) NutriBench model sweep — benchmark all downloaded quantizations in one run
+# Quick test (20 samples/model, ~2 min/model):
+python scripts/run_model_sweep.py --limit 20
+
+# Full run, protein only (~3–6 hours total):
+python scripts/run_model_sweep.py
+
+# Full run, all nutrients (~12–24 hours total):
+python scripts/run_model_sweep.py --nutrients carb protein fat energy
+
+# Specific models only:
+python scripts/run_model_sweep.py --models Qwen3.5-9B-UD-Q4_K_XL.gguf Qwen3.5-9B-Q4_K_M.gguf
+
+# Results saved to nutri_rag/results/model_sweep_{timestamp}/ with a comparison table.
 
 # B) PFoodReq benchmark (LLM server not required)
 cd ~/work/atlas/mimir/nutri_rag
@@ -423,9 +476,12 @@ bash scripts/start_server.sh
 
 # --- Real world ---
 
-# Terminal 2 — robot assistant
+# Terminal 2 — robot assistant (YOLO detector, default)
 cd ~/work/atlas/mimir/nutri-atlas/robot_control
 python robot_assistant.py --robot-ip 192.168.0.114 --detection-mode real
+
+# Terminal 2 — robot assistant (VLM detector — open-vocab, uses LLM vision)
+python robot_assistant.py --robot-ip 192.168.0.114 --detection-mode real --detector vlm
 
 # Terminal 3a — manual detector: press Enter to push current frame to robot
 cd ~/work/atlas/mimir/nutri-atlas/robot_control/tools
@@ -467,8 +523,10 @@ python robot_assistant.py --robot-ip 127.0.0.1
 |-------|-----------|
 | Graph ML | PyTorch + PyTorch Geometric (GATv2Conv) |
 | Text Embeddings | Qwen3-Embedding-0.6B (1024d, last-token pooling) |
-| LLM Inference | Qwen3.5-9B via llama.cpp / llama-server |
+| LLM / VLM Inference | Qwen3.5-9B + mmproj vision adapter via llama.cpp / llama-server |
 | Agent Framework | Qwen Agent (tool-calling orchestration) |
+| Object Detection | YOLO (COCO 80-class) or VLM grounding (open-vocabulary) |
+| 3D Localisation | VLM bounding box → RealSense depth backprojection → camera-frame 3D |
 | Robot Communication | ZMQ → ROS2 (Clearpath Go2) |
 | Database | DuckDB (columnar storage + full-text search) |
 | Data Sources | USDA FoodData Central + USDA SR Legacy + FoodKG |
@@ -509,10 +567,12 @@ mimir/
 │
 ├── nutri-atlas/                   # Robot integration
 │   ├── robot_control/
-│   │   ├── robot_assistant.py     # Main chat loop + Qwen Agent
+│   │   ├── robot_assistant.py     # Main chat loop + Qwen Agent (--detector yolo|vlm)
+│   │   ├── data/                  # Saved RGB-D frame pairs for VLM grounding
 │   │   ├── tools/
 │   │   │   ├── navigate_tool.py   # Navigate to landmarks / coordinates
 │   │   │   ├── detect_tool.py     # navigate_and_scan, scan_objects, register_objects
+│   │   │   ├── detector_core.py   # YOLODetector, VLMDetector, Detection, FrameCache
 │   │   │   ├── object_tool.py     # Camera object detection queries
 │   │   │   ├── motion_tool.py     # Spin and move primitives
 │   │   │   ├── nutrition_tool.py  # Meal recommendation (wraps nutri_rag)

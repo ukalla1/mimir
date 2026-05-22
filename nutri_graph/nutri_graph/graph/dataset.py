@@ -1,5 +1,8 @@
+import os
+
 import duckdb
 import numpy as np
+import pandas as pd
 import torch
 from torch_geometric.data import Data
 
@@ -13,7 +16,7 @@ def _table_exists(con, table_name: str) -> bool:
     return result[0] > 0
 
 
-def build_graph_from_db(db_path: str, include_recipes: bool = False):
+def build_graph_from_db(db_path: str, include_recipes: bool = False, subs_csv_path: str = None):
     """Build a PyG Data object from the nutri_kb DuckDB.
 
     Parameters
@@ -154,6 +157,34 @@ def build_graph_from_db(db_path: str, include_recipes: bool = False):
 
     con.close()
 
+    # ── Substitution edges (optional) ──────────────────────────────────────
+    subs_pos_edge_index = None
+    if subs_csv_path and os.path.exists(subs_csv_path):
+        subs_df = pd.read_csv(subs_csv_path, sep=";")
+
+        def uri_to_ndb(u): return int(u.split("#")[1])
+
+        src_list, dst_list = [], []
+        for _, row in subs_df.iterrows():
+            src_fdc = 1_000_000 + uri_to_ndb(row["Food id"])
+            dst_fdc = 1_000_000 + uri_to_ndb(row["Substitution id"])
+            if src_fdc in food_id_to_idx and dst_fdc in food_id_to_idx:
+                src_list.append(food_id_to_idx[src_fdc])
+                dst_list.append(food_id_to_idx[dst_fdc])
+
+        if src_list:
+            subs_fwd  = torch.tensor([src_list, dst_list], dtype=torch.long)
+            subs_rev  = torch.tensor([dst_list, src_list], dtype=torch.long)
+            subs_attr = torch.ones(len(src_list), 1)
+            edge_segments.extend([subs_fwd, subs_rev])
+            attr_segments.extend([subs_attr, subs_attr])
+            subs_pos_edge_index = subs_fwd
+            print(f"[dataset] Added {len(src_list)} substitution pairs ({len(src_list)*2} bidirectional edges, {subs_pos_edge_index.size(1)} supervised)")
+        else:
+            print("[dataset] Substitution CSV loaded but no pairs matched our food KB")
+    elif subs_csv_path:
+        print(f"[dataset] subs_csv_path not found: {subs_csv_path}")
+
     # ── Assemble full graph ─────────────────────────────────────────────
     TOTAL_NODES = NUM_FOODS + NUM_NUTRIENTS + NUM_RECIPES + NUM_TAGS
 
@@ -178,6 +209,8 @@ def build_graph_from_db(db_path: str, include_recipes: bool = False):
     # Attach supervised tensors (trainer expects these like Colab)
     data.pos_edge_index = pos_edge_index
     data.edge_attr_pos = edge_attr_pos
+    if subs_pos_edge_index is not None:
+        data.subs_pos_edge_index = subs_pos_edge_index
 
     # Build food_to_nutrs exactly like Colab (dst_nutr WITHOUT offset)
     food_to_nutrs = [set() for _ in range(NUM_FOODS)]
