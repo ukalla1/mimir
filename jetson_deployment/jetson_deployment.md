@@ -505,6 +505,139 @@ macronutrients well-represented in USDA).
 
 ---
 
+## Running HealthyFoodSubs tests on Jetson
+
+The HealthyFoodSubs substitution benchmark is **much simpler** than NutriBench because
+it doesn't use the LLM at all — it's pure cosine similarity over precomputed embeddings.
+
+| Component | NutriBench test | HealthyFoodSubs test |
+|---|---|---|
+| Chat LLM server | required | not used |
+| Embedding server | required (text/gat/hybrid modes) | not used |
+| GAT embeddings | required (gat/hybrid) | required |
+| Text embeddings | required (text/gat/hybrid) | required |
+| DuckDB | required (text/gat/hybrid) | required |
+| HealthyFoodSubs CSVs | not needed | required |
+| Python deps | numpy + duckdb + requests | numpy + pandas + duckdb |
+
+The script `healthyfoodsubs_jetson_test.py` evaluates four configurations in one run:
+- **Paper GAT (+cat)** — published baseline from Loesch et al. (2024)
+- **Ours GAT (+cat)** — cosine in 64-dim GAT embedding space
+- **Ours Text (+cat)** — cosine in 1024-dim Qwen3-Embedding text space
+- **Ours Hybrid (+cat)** — α·cos_gat + (1-α)·cos_text (default α=0.5)
+
+Metrics: MAP, MRR, RR@5, RR@10 (all with category filtering as per the paper protocol).
+
+### Step 1 — Ship HealthyFoodSubs CSVs to Jetson
+
+In addition to the embedding files already shipped for NutriBench, you need the
+three HealthyFoodSubs CSVs (the rest of the HF repo isn't needed):
+
+```bash
+# On dev machine — bundle just the CSVs we need
+mkdir -p stage/HealthyFoodSubs/Input\ Data stage/HealthyFoodSubs/Output
+cp HealthyFoodSubs/Input\ Data/final_substitution.csv  stage/HealthyFoodSubs/Input\ Data/
+cp HealthyFoodSubs/Input\ Data/food_category.csv       stage/HealthyFoodSubs/Input\ Data/
+cp HealthyFoodSubs/Output/GAT_foods_2_test.csv         stage/HealthyFoodSubs/Output/
+
+# Ship to Jetson
+rsync -avz stage/HealthyFoodSubs/ jetson:~/nutri/data/HealthyFoodSubs/
+```
+
+Total size: ~200 KB. After this, the Jetson layout looks like:
+
+```
+~/nutri/data/
+├── food_embeddings.npy
+├── food_text_embeddings.npy
+├── food_fdc_ids.npy
+├── nutri_kb.duckdb
+└── HealthyFoodSubs/
+    ├── Input Data/
+    │   ├── final_substitution.csv
+    │   └── food_category.csv
+    └── Output/
+        └── GAT_foods_2_test.csv
+```
+
+### Step 2 — Run the test on Jetson
+
+```bash
+ssh jetson
+source ~/nutri-venv/bin/activate
+cd ~/nutri
+
+# Default: evaluates GAT + Text + Hybrid against paper baseline, saves results JSON
+python scripts/healthyfoodsubs_jetson_test.py \
+    --gat-emb   data/food_embeddings.npy \
+    --text-emb  data/food_text_embeddings.npy \
+    --text-ids  data/food_fdc_ids.npy \
+    --db        data/nutri_kb.duckdb \
+    --hs-root   data/HealthyFoodSubs
+```
+
+(If you ship the files to the default `~/nutri/data/` layout shown above, all
+`--*` flags can be omitted — the script's defaults resolve to those paths.)
+
+### Step 3 — Read the output
+
+The script prints a comparison table and writes a results JSON:
+
+```
+======================================================================
+  FOOD SUBSTITUTION EVALUATION  vs HealthyFoodSubs (Loesch et al., 2024)
+======================================================================
+  Method                         MAP     MRR    RR@5   RR@10      n
+  ----------------------------------------------------------------
+  Paper GAT (+cat) [paper]     0.345   0.549   0.680   0.757    183
+  ----------------------------------------------------------------
+  Ours GAT    (+cat)           0.399   0.438   0.801   0.873    181
+  Ours Text   (+cat)           0.215   0.335   0.608   0.779    181
+  Ours Hybrid (+cat)           0.443   0.481   0.878   0.917    181
+======================================================================
+
+Saved to: ~/nutri/data/results/healthyfoodsubs.json
+```
+
+### Useful flags
+
+| Flag | Default | Effect |
+|---|---|---|
+| `--alpha 0.5` | 0.5 | GAT weight for hybrid (0=text-only, 1=GAT-only) |
+| `--no-text` | off | Skip text/hybrid (test only GAT in isolation) |
+| `--no-filter` | off | Disable category filter — debugging only; numbers will be much worse |
+| `--out PATH` | `data/results/healthyfoodsubs.json` | Override output JSON path |
+
+### Sweep alpha (find the best hybrid weight on this Jetson's checkpoint)
+
+```bash
+for a in 0.0 0.2 0.3 0.4 0.5 0.6 0.7 0.8 1.0; do
+    python scripts/healthyfoodsubs_jetson_test.py \
+        --alpha $a --out data/results/healthyfoodsubs_a${a}.json
+done
+
+# Quick comparison
+python -c "
+import json, glob
+for f in sorted(glob.glob('data/results/healthyfoodsubs_a*.json')):
+    d = json.load(open(f))
+    hyb = next(r for r in d['runs'] if 'Hybrid' in r['method'])
+    print(f'alpha={d[\"config\"][\"alpha\"]:.1f}  MAP={hyb[\"metrics\"][\"MAP\"]:.3f}  MRR={hyb[\"metrics\"][\"MRR\"]:.3f}')
+"
+```
+
+### Why this test is fast on Jetson
+
+No LLM = no GPU bottleneck. Just:
+- Load 4 small files (~50 MB total)
+- ~180 cosine comparisons against ~8k foods each (numpy)
+- ~30 seconds end-to-end on Orin
+
+This is a great smoke test to run first when you set up the Jetson — it validates
+that the embeddings + DuckDB are intact without needing the llama.cpp servers to be up.
+
+---
+
 ## Performance expectations on Jetson Orin
 
 | Stage | Latency (Orin AGX 64GB, Q4_K_M quantized models) |
@@ -513,8 +646,9 @@ macronutrients well-represented in USDA).
 | Cosine search over 10k vectors (1024-dim) | <10 ms (numpy) |
 | Cosine search over 10k vectors (64-dim, GAT) | <2 ms |
 | LLM generation (Qwen3.5-9B, ~200 tokens) | ~3–8 s |
-| **Total per query (baseline)** | **~3–8 s** |
-| **Total per query (text/gat/hybrid)** | **~4–10 s** (one embed call per food term + retrieval) |
+| **NutriBench query (baseline)** | **~3–8 s** |
+| **NutriBench query (text/gat/hybrid)** | **~4–10 s** (one embed call per food term + retrieval) |
+| **Full HealthyFoodSubs eval (all 3 modes)** | **~20–40 s total** (no LLM, no embedding server) |
 
 Smaller Jetson Nano variants (4GB) won't fit Qwen3.5-9B — would need to swap to Qwen2.5-3B or smaller for the chat model.
 
@@ -529,7 +663,8 @@ Smaller Jetson Nano variants (4GB) won't fit Qwen3.5-9B — would need to swap t
 | `nutri_rag/nutri_rag/config.py` | **Modify** — add `EMBEDDING_BASE_URL`; update paths if needed |
 | `inference.py` | **New** (Jetson side, ~30 lines, optional simple driver) |
 | `jetson_deployment/scripts/nutribench_jetson_questions.py` | **New** — extract NutriBench questions to JSON (runs on dev machine) |
-| `jetson_deployment/scripts/nutribench_jetson_test.py` | **New** — four-mode test driver (baseline / text / gat / hybrid) |
+| `jetson_deployment/scripts/nutribench_jetson_test.py` | **New** — four-mode NutriBench test driver (baseline / text / gat / hybrid) |
+| `jetson_deployment/scripts/healthyfoodsubs_jetson_test.py` | **New** — HealthyFoodSubs benchmark (GAT / Text / Hybrid; no LLM needed) |
 | `/etc/systemd/system/llama-embed.service` | **New** (Jetson side, optional) |
 | `/etc/systemd/system/llama-chat.service` | **New** (Jetson side, optional) |
 
