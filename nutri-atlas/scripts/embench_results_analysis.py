@@ -41,7 +41,7 @@ from pathlib import Path
 # Default run to inspect — the Q4_K_M full EB-Alfred eval
 DEFAULT_RUN = Path(
     "/home/boxun/work/atlas/mimir/EmbodiedBench_atlasmodified/results/eb_alfred/"
-    "Qwen3-VL-9B-GGUF_qwen35_q4ks_alf_full_memB"
+    "Qwen3-VL-9B-GGUF_qwen35_q4km_alf_smoke_memB_v2"
 )
 
 # Metrics we aggregate per subset. Order matters for column layout.

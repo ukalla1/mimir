@@ -2,20 +2,18 @@
 
 This doc tracks the **implementation** of Direction B (persistent-memory port into EmbodiedBench's planner). For the *design rationale*, see [atlas_integrated_emben_testing.md](atlas_integrated_emben_testing.md). For the original Q4_K_M baseline numbers we're A/B-ing against, see [qwen35embodiedbench_test.md](qwen35embodiedbench_test.md).
 
-**Status (as of 2026-05-21):**
+**Status (as of 2026-05-22):**
 
 | Step | What it does | Status |
 |------|--------------|--------|
-| B.0 | Create `EmbodiedBench_atlasmodified/` as a sibling tree of upstream | ✅ done |
-| B.1 | Edit `vlm_planner.py` — add memory store, helper, prompt injection | ✅ done |
-| B.2 | Thread `persistent_memory` through evaluator + yaml | ✅ done |
-| B.3 | Host-side syntax + AST sanity check | ✅ done |
-| B.4 | Build `embench:alfhab-atlasmodified` Docker image | ✅ done |
-| B.5 | Launch modified container with in-container fixes | ✅ done |
-| B.6 | Smoke test (memory ON) at `down_sample_ratio=0.1`, all 6 EB-Alfred subsets | 🟡 running |
-| B.7 | Smoke A/B comparison vs. Q4_K_M baseline smoke | ⏳ pending |
-| B.8 | Full run (memory ON) all 6 subsets | ⏳ pending |
-| B.9 | Full A/B comparison vs. Q4_K_M baseline full | ⏳ pending |
+| B.0–B.5 (v1) | Tree setup, v1 edits, image build, container launch | ✅ done |
+| B.6 (v1) | v1 smoke (name-only memory, full dump) | ✅ superseded by v2 |
+| v2.1–v2.7 | Trajectory memory + Qwen3-Embedding RAG retrieval; code edits + syntax check | ✅ done |
+| v2.8 | Rebuild image with transformers≥4.51 + Qwen3-Embedding-0.6B pre-baked | ✅ done |
+| v2.9 | v2 smoke test (memory + RAG ON) at `down_sample_ratio=0.1`, all 6 subsets | 🟡 running |
+| v2.10 | A/B comparison vs. baseline | ⏳ pending |
+
+**Current architecture: v2 = trajectory memory + RAG retrieval.** v1 (first/last-seen, dump-all) is replaced; results from v1 smoke (if any) still live in `results/eb_alfred/.../qwen35_q4km_alf_smoke_memB/`. Future runs from `embench:alfhab-atlasmodified` are v2.
 
 ---
 
@@ -26,14 +24,16 @@ This doc tracks the **implementation** of Direction B (persistent-memory port in
 ```
 /home/boxun/work/atlas/mimir/
 ├── EmbodiedBench/                          ← upstream, untouched (baseline source of truth)
-│   └── results/eb_alfred/.../qwen35_q4ks_alf_full/   ← Phase 5 baseline
+│   └── results/eb_alfred/.../qwen35_q4ks_alf_full/   ← baseline
 └── EmbodiedBench_atlasmodified/            ← Direction B fork
-    ├── embodiedbench/                      ← edited files live here
-    │   ├── planner/vlm_planner.py          ← MODIFIED (memory store + injection)
-    │   ├── configs/eb-alf.yaml             ← MODIFIED (persistent_memory: True)
-    │   ├── evaluator/eb_alfred_evaluator.py ← MODIFIED (passes flag to VLMPlanner)
+    ├── embodiedbench/                      ← edited/new files
+    │   ├── planner/vlm_planner.py          ← MODIFIED (v2 trajectory memory + RAG)
+    │   ├── planner/memory_embedder.py      ← NEW (Qwen3-Embedding-0.6B wrapper, ported from nutri-atlas)
+    │   ├── envs/eb_alfred/EBAlfEnv.py      ← MODIFIED (v2: emit {name,x,y,z} dicts for visible objects)
+    │   ├── configs/eb-alf.yaml             ← MODIFIED (persistent_memory: True, memory_top_k: 10)
+    │   ├── evaluator/eb_alfred_evaluator.py ← MODIFIED (passes both kwargs to VLMPlanner)
     │   └── envs/eb_alfred/data/json_2.1.0 → symlink to upstream's dataset
-    ├── Docker/Dockerfile.alfhab-atlasmodified  ← NEW: surgical 3-file overlay on embench:alfhab
+    ├── Docker/Dockerfile.alfhab-atlasmodified  ← surgical overlay; 5 COPYs + transformers upgrade + Qwen3-Embedding pre-download
     └── results/                            ← memory-variant eval outputs land here
 ```
 
@@ -42,24 +42,47 @@ This doc tracks the **implementation** of Direction B (persistent-memory port in
 ```
 embench:alfhab                  ← active baseline (existing, unchanged)
 embench:alfhab-v3               ← backup of baseline (existing, unchanged)
-embench:alfhab-atlasmodified    ← NEW: FROM embench:alfhab + 3 surgical file overlays
+embench:alfhab-atlasmodified    ← v2: FROM embench:alfhab + transformers≥4.51 + Qwen3-Embedding-0.6B cached + 5 surgical file overlays (~27.1GB, +1.4GB vs baseline)
 ```
 
-### Exact code changes in `vlm_planner.py`
+### What v2 stores per object (memory shape)
 
-1. **`__init__`**: new kwarg `persistent_memory=False`; `self.persistent_memory = persistent_memory` and `self.observed_objects = {}` added to the body.
-2. **`_format_observed_objects_block()`** (new helper method): returns the `## Previously observed objects (across earlier steps in this episode):` text block, or empty string when disabled / dict empty.
-3. **`process_prompt()`**: both action-history branches (`chat_history=True` and the standard `else`) now call `self._format_observed_objects_block()` and prepend it before "The action history:".
-4. **`reset()`**: clears `self.observed_objects = {}` per episode (alongside the existing `episode_messages` / `episode_act_feedback` clear).
-5. **`update_info(info)`**: after the existing `episode_act_feedback` append, also iterates `info['object_states']['visible_objs']` (already emitted by `EBAlfEnv.step()` at line 336 of upstream) and updates `observed_objects[label] = {'first_seen', 'last_seen'}`.
+```python
+self.observed_objects = {
+    "Ladle":     [{"step": 0, "x": 1.23, "y": 0.91, "z": -0.45},
+                  {"step": 1, "x": 1.23, "y": 0.91, "z": -0.45},   # stationary
+                  {"step": 5, "x": 1.50, "y": 1.10, "z": -0.20}],  # moved
+    "SinkBasin": [{"step": 1, "x": 2.10, "y": 0.83, "z": -0.45}, ...],
+}
+```
 
-### Exact change in `eb_alfred_evaluator.py`
+Same `objectType` seen at multiple positions in the same step → both kept as separate sightings, position differentiates. Per-episode reset.
 
-Added `persistent_memory=self.config.get('persistent_memory', False)` to the `VLMPlanner(...)` constructor call. The `.get(..., False)` keeps backward compatibility with configs that don't define the key.
+### What gets injected into the prompt
 
-### Exact change in `configs/eb-alf.yaml`
+Each object's trajectory is rendered as one short string (consecutive same-position sightings collapsed):
+```
+- Ladle observed at positions (1.23, 0.91, -0.45) at steps 0-1; (1.50, 1.10, -0.20) at step 5
+- SinkBasin observed at positions (2.10, 0.83, -0.45) at steps 1-2
+```
 
-Appended `persistent_memory: True` at the bottom (default ON in the fork). Pass `persistent_memory=False` on the CLI to ablate.
+**RAG**: if memory has >10 entries, embed each string + the user instruction with `Qwen/Qwen3-Embedding-0.6B`, take top-10 by cosine similarity. Prompt header changes to `## Previously observed objects (top 10 most relevant of N):`. If ≤10 entries, dump them all with the unqualified header.
+
+### Code change inventory
+
+| File | What changed |
+|---|---|
+| `vlm_planner.py` `__init__` | new kwargs `persistent_memory=False`, `memory_top_k=10`; init `self.observed_objects = {}`; lazy-load `TextEmbedder` from `Qwen3-Embedding-0.6B` (CPU) when memory is on |
+| `vlm_planner.py` `reset()` | clear `self.observed_objects` (per-episode) |
+| `vlm_planner.py` `update_info(info)` | for each visible obj dict, append `{step, x, y, z}` to `observed_objects[name]` |
+| `vlm_planner.py` `_render_one_object()` | NEW helper: collapse consecutive same-position sightings into "steps X-Y" runs |
+| `vlm_planner.py` `_format_observed_objects_block(user_instruction)` | render every entry, then either dump all (≤K) or top-K via embedding similarity |
+| `vlm_planner.py` `process_prompt()` | both injection sites now pass `user_instruction` so RAG can query against it |
+| `memory_embedder.py` | NEW file — `TextEmbedder` class, ~50 lines, ported from [nutri_rag/embedding.py](../nutri_rag/nutri_rag/embedding.py) (last-token pooling + L2-norm, batch encode) |
+| `EBAlfEnv.py` line 336 | `visible_objs` now emits `{name, x, y, z}` dicts (rounded to 2 decimals) instead of bare strings |
+| `eb_alfred_evaluator.py` | passes `persistent_memory` and `memory_top_k` from config dict to `VLMPlanner(...)` |
+| `eb-alf.yaml` | new keys: `persistent_memory: True`, `memory_top_k: 10` |
+| `Dockerfile.alfhab-atlasmodified` | `pip install --upgrade 'transformers>=4.51.0'`; pre-download Qwen3-Embedding-0.6B into HF cache; 5 surgical COPYs (vlm_planner, memory_embedder, eb-alf.yaml, eb_alfred_evaluator, EBAlfEnv); build-time smoke imports both VLMPlanner and TextEmbedder and asserts both new kwargs are present |
 
 ---
 
@@ -155,11 +178,18 @@ conda activate embench
 export remote_url=http://host.docker.internal:8080/v1
 export OPENAI_API_KEY=EMPTY
 
-# 5. Verify nothing got clobbered (catches the broad-COPY regression)
-grep persistent_memory /opt/embodiedbench/embodiedbench/planner/vlm_planner.py | head -3
-grep persistent_memory /opt/embodiedbench/embodiedbench/configs/eb-alf.yaml
+# 5. Verify v2 wiring + that nothing got clobbered (catches the broad-COPY regression)
+echo "--- v2 wiring ---"
+grep memory_top_k /opt/embodiedbench/embodiedbench/configs/eb-alf.yaml
+grep -c "observed_objects\|memory_top_k\|memory_embedder" /opt/embodiedbench/embodiedbench/planner/vlm_planner.py
+grep "'name':" /opt/embodiedbench/embodiedbench/envs/eb_alfred/EBAlfEnv.py | head -1
+ls -la /opt/embodiedbench/embodiedbench/planner/memory_embedder.py
+echo "--- Phase 4 patch still present ---"
 grep "UseDisplayDevice" /opt/embodiedbench/embodiedbench/envs/eb_alfred/scripts/startx.py
-# Expected: 3 hits on persistent_memory, 1 hit on UseDisplayDevice "none"
+echo "--- embedder load smoke (~5-10s first time) ---"
+python3 -c "from embodiedbench.planner.memory_embedder import TextEmbedder; e = TextEmbedder(device='cpu'); v = e.encode(['hello']); print('embedder ok, vec shape:', v.shape)"
+# Expected: memory_top_k: 10; grep count >5; 'name': line shown; memory_embedder.py exists;
+#           UseDisplayDevice patch present; vec shape (1, 1024).
 
 # 6. Start headless X
 python -m embodiedbench.envs.eb_alfred.scripts.startx 1 &
@@ -170,29 +200,39 @@ export DISPLAY=:1
 
 ### Part E — Container: run the eval
 
+Naming convention: `qwen35_{quant}_alf_{scope}_{variant}` where `variant ∈ {memB, memB_v2, memB_ablation, …}`. **The quant in the exp_name should match the GGUF the host's llama-server is currently serving** — verify with `python3 -c "import urllib.request,json; print(json.loads(urllib.request.urlopen('http://host.docker.internal:8080/v1/models').read())['data'][0]['id'])"` from inside the container.
+
 ```bash
-# Smoke (10% subsample, ~5 episodes per subset, ~30 total, ~30 min)
+# v2 smoke (10% subsample, ~5 episodes per subset, ~30 total, ~30 min)
 python -m embodiedbench.main \
     env=eb-alf \
     model_name=Qwen3-VL-9B-GGUF \
     model_type=remote \
     down_sample_ratio=0.1 \
-    exp_name='qwen35_q4ks_alf_smoke_memB'
+    exp_name='qwen35_q4ks_alf_smoke_memB_v2'
 
-# Full (matches Phase 5 baseline scope, ~few hours, 300 episodes)
+# v2 full (matches baseline scope, ~few hours, 300 episodes)
 python -m embodiedbench.main \
     env=eb-alf \
     model_name=Qwen3-VL-9B-GGUF \
     model_type=remote \
-    exp_name='qwen35_q4ks_alf_full_memB'
+    exp_name='qwen35_q4ks_alf_full_memB_v2'
 
-# Ablation (memory OFF, same fork) — useful if you suspect prompt-format issues are confounding
+# Ablation 1: memory OFF entirely
 python -m embodiedbench.main \
     env=eb-alf \
     model_name=Qwen3-VL-9B-GGUF \
     model_type=remote \
     persistent_memory=False \
-    exp_name='qwen35_q4ks_alf_full_memB_ablation'
+    exp_name='qwen35_q4ks_alf_full_memB_v2_ablation_off'
+
+# Ablation 2: memory ON but RAG disabled by setting top_k absurdly high (effectively dump all)
+python -m embodiedbench.main \
+    env=eb-alf \
+    model_name=Qwen3-VL-9B-GGUF \
+    model_type=remote \
+    memory_top_k=999 \
+    exp_name='qwen35_q4ks_alf_full_memB_v2_ablation_dumpall'
 ```
 
 **Note on `eval_sets`:** the modified `eb-alf.yaml` has `eval_sets: []` and the evaluator falls back to `ValidEvalSets` (all 6 subsets, in canonical order: `base`, `common_sense`, `complex_instruction`, `spatial`, `visual_appearance`, `long_horizon`) — see [eb_alfred_evaluator.py:44-47](../../work/atlas/mimir/EmbodiedBench/embodiedbench/evaluator/eb_alfred_evaluator.py#L44-L47). So we don't need to pass `eval_sets=[...]` on the CLI; passing it explicitly is risky because typoing a subset name (e.g. `spatial_relationship`) trips an `AssertionError` mid-run after several subsets already finished. Only pass it when you genuinely want a single subset, e.g. `eval_sets=[spatial]` to fill in a missing one.
@@ -204,18 +244,23 @@ python -m embodiedbench.main \
 - Re-running with the same `exp_name` but a different subset (e.g. `eval_sets=[spatial]` to fill in a missing one) leaves the other subsets untouched — only the named subset's directory is overwritten.
 - Use a new `exp_name` (or `mv` the old dir to `..._exp_name.v1`) before re-running if you want to preserve the previous results.
 
-### Part F — Verify the memory injection is actually happening
+### Part F — Verify the memory injection + RAG are actually engaging
 
-While the eval is running, in a separate **host** shell, attach to the llama-server tmux and watch for `## Previously observed objects` in the prompt bodies:
+While the eval is running, in a separate **host** shell, attach to the llama-server tmux:
 
 ```bash
 tmux attach -t qwen-server
-# Look for prompts containing "## Previously observed objects (across earlier steps in this episode):"
-# These should appear from step 2 onward of each episode (step 1 has no prior observations).
 # Detach with Ctrl-B D.
 ```
 
-If the line never appears, something's wrong with the flag plumbing — stop the eval and re-verify Part D step 5.
+Look for two prompt header variants in the request bodies:
+
+- `## Previously observed objects (across earlier steps in this episode):` — appears when memory has ≤10 entries (RAG fallback to dump-all).
+- `## Previously observed objects (top 10 most relevant of N):` — appears once memory has >10 entries; confirms RAG retrieval is engaging.
+
+Entries should look like `- Ladle observed at positions (1.23, 0.91, -0.45) at steps 0-1; (1.50, 1.10, -0.20) at step 5` (trajectory format with consecutive same-position runs collapsed).
+
+If neither header appears, the flag isn't threading. If only the first appears even on long episodes, RAG isn't engaging (check `memory_top_k` config). Either case → stop the eval and debug.
 
 ---
 
@@ -242,24 +287,27 @@ Confirm the exact baseline directory name first with `ls /home/boxun/work/atlas/
 
 ---
 
-## What's left after B.6 lands
+## What's left after v2 smoke lands
 
-- **B.7**: smoke A/B comparison. Pass criterion: no subset's smoke success drops >25 pp vs. Q4_K_M smoke (a 0.1 subsample is noisy, we're just looking for "didn't break anything catastrophically").
-- **B.8**: full run, all 6 subsets, no `down_sample_ratio`. ~300 episodes total.
-- **B.9**: full A/B comparison. The actual research deliverable.
+- **v2.10 (smoke A/B)**: compare v2 smoke against baseline smoke. Pass criterion: no subset drops >25 pp vs. baseline (a 0.1 subsample is noisy, just looking for "didn't break anything catastrophically").
+- **v2 full run**: all 6 subsets, no `down_sample_ratio`. ~300 episodes total. Same `exp_name` template but drop the `_smoke` suffix.
+- **v2 full A/B**: the actual research deliverable. Compare against the Q4_K_M baseline full run.
+- **Optional ablations** (Part E commands above): memory-off run + memory-on-but-dump-all run. Lets us decompose the v2 delta into "did memory help?" vs "did RAG filtering help on top of memory?".
 
-If B.6 surfaces a flag-threading bug (no `## Previously observed objects` in prompts), pause B.7+ until fixed.
+If v2 smoke surfaces a flag-threading bug or RAG never engages, pause full runs and debug.
 
 ---
 
-## Open design points (deferred to v2)
+## Open design points (now partially resolved by v2)
 
-These are intentional v1 omissions — record them so we don't re-relitigate.
-
-1. **3D position** — AI2-THOR exposes per-object `position` in `last_event.metadata['objects']`. v1 stores only `(label, first_seen_step, last_seen_step)`. If v1 shows a positive delta, v2 should A/B `label-only` vs. `label + relative position to agent` on the `spatial` subset specifically.
-2. **`parentReceptacles`** — AI2-THOR also exposes container relationships (e.g. "Apple is inside Fridge"). Strong candidate for v2.
-3. **Forgetting / staleness** — EmbodiedBench episodes max at 30 steps, so v1 never forgets. Add `max_age_steps` only if we extend to longer episodes.
-4. **Confidence / frequency** — count of frames each object was visible in. Useful only if AI2-THOR's `visible` flag turns out to be noisier than we think (it shouldn't be).
+| Topic | v1 status | v2 status |
+|---|---|---|
+| 3D position | not captured | ✅ captured as world-frame `(x, y, z)` per sighting |
+| RAG over memory | not done | ✅ Qwen3-Embedding-0.6B + top-10 cosine |
+| `parentReceptacles` (container relationships) | not captured | ⏳ still v3 candidate — "Apple is inside Fridge" cues |
+| Forgetting / staleness (`max_age_steps`) | not needed (≤30 step episodes) | still not needed in v2 |
+| Confidence / frequency | not captured | implicitly captured: RAG sees how often each object recurs in the trajectory text |
+| Agent-relative coords (vs world-frame) | not captured | candidate v3 if VLM struggles with raw world-frame numbers |
 
 ---
 
