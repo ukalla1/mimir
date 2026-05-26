@@ -1,0 +1,190 @@
+{
+  "source": "dongx1997/NutriBench",
+  "config": "v2",
+  "split": "train",
+  "n": 20,
+  "seed": 42,
+  "nutrient": null,
+  "questions": [
+    {
+      "id": 0,
+      "source_index": 10476,
+      "meal_description": "For lunch, I have one egg roll that’s meatless.",
+      "carb": 19.21,
+      "protein": 3.6,
+      "fat": 9.05,
+      "energy": 172.16
+    },
+    {
+      "id": 1,
+      "source_index": 1824,
+      "meal_description": "For dinner, I’m having 60g of Carreteiro rice and 240g of regular cola.",
+      "carb": 27.700000000000003,
+      "protein": 6.47,
+      "fat": 4.25,
+      "energy": 174.0
+    },
+    {
+      "id": 2,
+      "source_index": 409,
+      "meal_description": "For dinner, I had 6 grams of brown sugar, 162 grams of unsweetened evaporated milk, and 2 grams of hard candies. I also drank 84 grams of unbottled water and had 46 grams of white wheat bread.",
+      "carb": 56.56,
+      "protein": 14.79,
+      "fat": 12.29,
+      "energy": 400.0
+    },
+    {
+      "id": 3,
+      "source_index": 12149,
+      "meal_description": "I'm having a banana and a cup of milk along with a sandwich for lunch.",
+      "carb": 68.07000000000001,
+      "protein": 17.22,
+      "fat": 16.65,
+      "energy": 481.43
+    },
+    {
+      "id": 4,
+      "source_index": 4506,
+      "meal_description": "For a snack, I'm having 28 grams of Cheetos and a 90-gram frosted cinnamon bun.",
+      "carb": 58.73,
+      "protein": 5.64,
+      "fat": 34.03,
+      "energy": 563.6
+    },
+    {
+      "id": 5,
+      "source_index": 4012,
+      "meal_description": "I have a 341g high protein nutritional drink for lunch.",
+      "carb": 58.96,
+      "protein": 18.35,
+      "fat": 18.35,
+      "energy": 470.58
+    },
+    {
+      "id": 6,
+      "source_index": 3657,
+      "meal_description": "For dinner, I had 100g of water, along with a 50g grilled hen egg, and 89g of steamed glutinous rice.",
+      "carb": 46.91,
+      "protein": 8.719999999999999,
+      "fat": 3.14,
+      "energy": 251.0
+    },
+    {
+      "id": 7,
+      "source_index": 2286,
+      "meal_description": "For a snack, I had 200g of cooked black beans from Guatemala, 10.9g of coffee with sugar, and 163.1g of tomato, onion, and coriander with salt.",
+      "carb": 65.61,
+      "protein": 19.3,
+      "fat": 1.76,
+      "energy": 339.0
+    },
+    {
+      "id": 8,
+      "source_index": 12066,
+      "meal_description": "For a quick snack, I’m drinking a cup of bottled water and munching on a single serving of animal cookies.",
+      "carb": 20.75,
+      "protein": 1.93,
+      "fat": 3.86,
+      "energy": 124.88
+    },
+    {
+      "id": 9,
+      "source_index": 1679,
+      "meal_description": "I had a lunch that included 3 grams of coconut oil, 10 grams of sautéed pork, 20 grams of boiled spare ribs, 50 grams of cooked rice noodles, and 300 grams of white rice.",
+      "carb": 101.6,
+      "protein": 13.68,
+      "fat": 22.65,
+      "energy": 681.0
+    },
+    {
+      "id": 10,
+      "source_index": 11087,
+      "meal_description": "For a snack, I'm having a medium raw apple, a miniature molasses cookie, and a powdered sugar doughnut.",
+      "carb": 64.53999999999999,
+      "protein": 3.98,
+      "fat": 15.94,
+      "energy": 405.65
+    },
+    {
+      "id": 11,
+      "source_index": 12135,
+      "meal_description": "I grabbed a cup of unsweetened applesauce and an egg for my snack.",
+      "carb": 27.97,
+      "protein": 6.7,
+      "fat": 5.0,
+      "energy": 174.4
+    },
+    {
+      "id": 12,
+      "source_index": 14617,
+      "meal_description": "For breakfast, I'm having a cup of hot green tea and a 6 oz container of Greek yogurt.",
+      "carb": 20.89,
+      "protein": 14.42,
+      "fat": 4.37,
+      "energy": 180.9
+    },
+    {
+      "id": 13,
+      "source_index": 8935,
+      "meal_description": "For brunch, I'm having a plain hot dog sandwich weighing 102.0g on a white bun with some mustard (5.0g) on it, and a cup of iced cafe mocha (372.0g).",
+      "carb": 57.84,
+      "protein": 17.5,
+      "fat": 22.12,
+      "energy": 503.21
+    },
+    {
+      "id": 14,
+      "source_index": 1424,
+      "meal_description": "I'm enjoying 99.3 grams of chapatti and 34 grams of egg curry for dinner.",
+      "carb": 73.9,
+      "protein": 13.9,
+      "fat": 7.9,
+      "energy": 443.0
+    },
+    {
+      "id": 15,
+      "source_index": 9674,
+      "meal_description": "For a snack, I'm having 18.3g of boiled borlotti beans, 240g of drinking water, and 54.8g of boiled drinking water. I also have 0.2g of epazote, 56.4g of fresh uncured cheese, 0.5g of garlic, 3.6g of white onions, 4.9g of white onions cooked in oil, 0.9g of salt, 18.9g of plain sour cream, 45.0g of fried tortilla, and 16.6g of vegetable fats and oils for frying. Plus, I’m enjoying a refreshing 332.5g of yoghurt drink.",
+      "carb": 81.80000000000001,
+      "protein": 24.4,
+      "fat": 41.8,
+      "energy": 819.0
+    },
+    {
+      "id": 16,
+      "source_index": 6912,
+      "meal_description": "I’m starting my day with a 248-gram serving of reduced fat chocolate milk and a 50-gram brownie cookie.",
+      "carb": 60.87,
+      "protein": 8.8,
+      "fat": 9.55,
+      "energy": 360.98
+    },
+    {
+      "id": 17,
+      "source_index": 520,
+      "meal_description": "For lunch, I am having 73.9g of beetroots, 53.6g of canned tuna in vegetable oil, 76.8g of carrots, 24.0g of fresh chicken breast, 223.4g of dried durum pasta, 26.3g of lemon juice, 44g of mayonnaise sauce, 0.5g of powdered drink bases, 5.4g of soya bean oil, 16.0g of fried sweet potatoes, and 377.1g of unbottled water.",
+      "carb": 190.14,
+      "protein": 50.84,
+      "fat": 56.21,
+      "energy": 1475.0
+    },
+    {
+      "id": 18,
+      "source_index": 488,
+      "meal_description": "For breakfast, I'm having 15.7g of brown sugar, 18.5g of fried eggs, 28.7g of potatoes, and 7.6g of processed oat-based flakes, along with 133.5g of unbottled water.",
+      "carb": 27.21,
+      "protein": 4.38,
+      "fat": 2.44,
+      "energy": 148.0
+    },
+    {
+      "id": 19,
+      "source_index": 1535,
+      "meal_description": "For breakfast, I had 21.0g of sweet biscuits, 63.1g of wheat flour chapatti without ghee, and 42.6g of perch fish curry, along with 4.7g of tea without milk.",
+      "carb": 63.2,
+      "protein": 14.999999999999998,
+      "fat": 9.1,
+      "energy": 395.0
+    }
+  ]
+}
