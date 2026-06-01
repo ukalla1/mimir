@@ -1,0 +1,61 @@
+<mxfile host="Electron" agent="Mozilla/5.0" version="29.6.6">
+  <diagram name="partA_GAT_zoom" id="partA_gat_zoom">
+    <mxGraphModel dx="1200" dy="700" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1100" pageHeight="450" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="zoom_box" parent="1" style="rounded=1;whiteSpace=wrap;html=1;hachureGap=4;fontFamily=Architects Daughter;fontSource=https%3A%2F%2Ffonts.googleapis.com%2Fcss%3Ffamily%3DArchitects%2BDaughter;fillColor=#f5f5f5;strokeColor=#666666;strokeWidth=2;dashed=1;arcSize=6;" value="" vertex="1">
+          <mxGeometry height="380" width="1040" x="30" y="40" as="geometry" />
+        </mxCell>
+        <mxCell id="zoom_title" parent="1" style="text;html=1;whiteSpace=wrap;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;fontFamily=Architects Daughter;fontSource=https%3A%2F%2Ffonts.googleapis.com%2Fcss%3Ffamily%3DArchitects%2BDaughter;" value="&lt;font face=&quot;Times New Roman&quot; style=&quot;font-size: 22px;&quot;&gt;&lt;b&gt;How we obtain the GAT Embedding Store&lt;/b&gt;&lt;/font&gt;" vertex="1">
+          <mxGeometry height="30" width="600" x="250" y="55" as="geometry" />
+        </mxCell>
+        <mxCell id="kg_box" parent="1" style="rounded=1;whiteSpace=wrap;html=1;hachureGap=4;fontFamily=Architects Daughter;fontSource=https%3A%2F%2Ffonts.googleapis.com%2Fcss%3Ffamily%3DArchitects%2BDaughter;fillColor=#fff2cc;strokeColor=#d6b656;strokeWidth=2;" value="" vertex="1">
+          <mxGeometry height="140" width="180" x="80" y="160" as="geometry" />
+        </mxCell>
+        <mxCell id="kg_label" parent="1" style="text;html=1;whiteSpace=wrap;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;fontFamily=Architects Daughter;fontSource=https%3A%2F%2Ffonts.googleapis.com%2Fcss%3Ffamily%3DArchitects%2BDaughter;" value="&lt;font face=&quot;Times New Roman&quot; style=&quot;font-size: 18px;&quot;&gt;&lt;b&gt;Knowledge Graph&lt;/b&gt;&lt;br&gt;&lt;br&gt;food + nutrient&lt;br&gt;+ recipe + tag&lt;/font&gt;" vertex="1">
+          <mxGeometry height="140" width="180" x="80" y="160" as="geometry" />
+        </mxCell>
+        <mxCell id="gat_box" parent="1" style="rounded=1;whiteSpace=wrap;html=1;hachureGap=4;fontFamily=Architects Daughter;fontSource=https%3A%2F%2Ffonts.googleapis.com%2Fcss%3Ffamily%3DArchitects%2BDaughter;fillColor=#d5e8d4;strokeColor=#82b366;strokeWidth=2;" value="" vertex="1">
+          <mxGeometry height="140" width="200" x="370" y="160" as="geometry" />
+        </mxCell>
+        <mxCell id="gat_label" parent="1" style="text;html=1;whiteSpace=wrap;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;fontFamily=Architects Daughter;fontSource=https%3A%2F%2Ffonts.googleapis.com%2Fcss%3Ffamily%3DArchitects%2BDaughter;" value="&lt;font face=&quot;Times New Roman&quot; style=&quot;font-size: 18px;&quot;&gt;&lt;b&gt;Trained GAT Model&lt;/b&gt;&lt;br&gt;&lt;br&gt;encode all nodes&lt;br&gt;in one forward pass&lt;/font&gt;" vertex="1">
+          <mxGeometry height="140" width="200" x="370" y="160" as="geometry" />
+        </mxCell>
+        <mxCell id="extract_box" parent="1" style="rhombus;whiteSpace=wrap;html=1;hachureGap=4;fontFamily=Architects Daughter;fontSource=https%3A%2F%2Ffonts.googleapis.com%2Fcss%3Ffamily%3DArchitects%2BDaughter;fillColor=#dae8fc;strokeColor=#6c8ebf;strokeWidth=2;" value="" vertex="1">
+          <mxGeometry height="120" width="170" x="660" y="170" as="geometry" />
+        </mxCell>
+        <mxCell id="extract_label" parent="1" style="text;html=1;whiteSpace=wrap;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;fontFamily=Architects Daughter;fontSource=https%3A%2F%2Ffonts.googleapis.com%2Fcss%3Ffamily%3DArchitects%2BDaughter;" value="&lt;font face=&quot;Times New Roman&quot; style=&quot;font-size: 16px;&quot;&gt;&lt;b&gt;keep&lt;br&gt;food rows&lt;/b&gt;&lt;/font&gt;" vertex="1">
+          <mxGeometry height="120" width="170" x="660" y="170" as="geometry" />
+        </mxCell>
+        <mxCell id="store_box" parent="1" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=15;fillColor=#d5e8d4;strokeColor=#82b366;strokeWidth=3;hachureGap=4;fontFamily=Architects Daughter;fontSource=https%3A%2F%2Ffonts.googleapis.com%2Fcss%3Ffamily%3DArchitects%2BDaughter;" value="" vertex="1">
+          <mxGeometry height="140" width="170" x="880" y="160" as="geometry" />
+        </mxCell>
+        <mxCell id="store_label" parent="1" style="text;html=1;whiteSpace=wrap;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;fontFamily=Architects Daughter;fontSource=https%3A%2F%2Ffonts.googleapis.com%2Fcss%3Ffamily%3DArchitects%2BDaughter;" value="&lt;font face=&quot;Times New Roman&quot; style=&quot;font-size: 18px;&quot;&gt;&lt;b&gt;GAT&lt;br&gt;Embedding Store&lt;/b&gt;&lt;br&gt;~10k &#215; 64-dim&lt;/font&gt;" vertex="1">
+          <mxGeometry height="140" width="170" x="880" y="170" as="geometry" />
+        </mxCell>
+        <mxCell id="arr1" parent="1" source="kg_box" target="gat_box" edge="1" style="endArrow=classic;html=1;rounded=0;hachureGap=4;strokeWidth=3;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="arr2" parent="1" source="gat_box" target="extract_box" edge="1" style="endArrow=classic;html=1;rounded=0;hachureGap=4;strokeWidth=3;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="arr3" parent="1" source="extract_box" target="store_box" edge="1" style="endArrow=classic;html=1;rounded=0;hachureGap=4;strokeWidth=3;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="arr1_label" parent="1" style="text;html=1;whiteSpace=wrap;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;fontFamily=Architects Daughter;fontSource=https%3A%2F%2Ffonts.googleapis.com%2Fcss%3Ffamily%3DArchitects%2BDaughter;" value="&lt;font face=&quot;Times New Roman&quot; style=&quot;font-size: 14px;&quot;&gt;&lt;i&gt;feed graph&lt;/i&gt;&lt;/font&gt;" vertex="1">
+          <mxGeometry height="20" width="100" x="265" y="215" as="geometry" />
+        </mxCell>
+        <mxCell id="arr2_label" parent="1" style="text;html=1;whiteSpace=wrap;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;fontFamily=Architects Daughter;fontSource=https%3A%2F%2Ffonts.googleapis.com%2Fcss%3Ffamily%3DArchitects%2BDaughter;" value="&lt;font face=&quot;Times New Roman&quot; style=&quot;font-size: 14px;&quot;&gt;&lt;i&gt;all node&lt;br&gt;vectors&lt;/i&gt;&lt;/font&gt;" vertex="1">
+          <mxGeometry height="30" width="90" x="575" y="210" as="geometry" />
+        </mxCell>
+        <mxCell id="arr3_label" parent="1" style="text;html=1;whiteSpace=wrap;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;fontFamily=Architects Daughter;fontSource=https%3A%2F%2Ffonts.googleapis.com%2Fcss%3Ffamily%3DArchitects%2BDaughter;" value="&lt;font face=&quot;Times New Roman&quot; style=&quot;font-size: 14px;&quot;&gt;&lt;i&gt;save&lt;/i&gt;&lt;/font&gt;" vertex="1">
+          <mxGeometry height="20" width="60" x="835" y="215" as="geometry" />
+        </mxCell>
+        <mxCell id="train_note" parent="1" style="text;html=1;whiteSpace=wrap;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;fontFamily=Architects Daughter;fontSource=https%3A%2F%2Ffonts.googleapis.com%2Fcss%3Ffamily%3DArchitects%2BDaughter;" value="&lt;font face=&quot;Times New Roman&quot; style=&quot;font-size: 13px;&quot;&gt;&lt;i&gt;trained once, offline (on dev machine)&lt;br&gt;reused for every retrieval at inference time&lt;/i&gt;&lt;/font&gt;" vertex="1">
+          <mxGeometry height="40" width="300" x="320" y="345" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

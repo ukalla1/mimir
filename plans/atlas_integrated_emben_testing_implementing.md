@@ -2,18 +2,33 @@
 
 This doc tracks the **implementation** of Direction B (persistent-memory port into EmbodiedBench's planner). For the *design rationale*, see [atlas_integrated_emben_testing.md](atlas_integrated_emben_testing.md). For the original Q4_K_M baseline numbers we're A/B-ing against, see [qwen35embodiedbench_test.md](qwen35embodiedbench_test.md).
 
-**Status (as of 2026-05-22):**
+**Status (as of 2026-05-29):**
 
 | Step | What it does | Status |
 |------|--------------|--------|
 | B.0–B.5 (v1) | Tree setup, v1 edits, image build, container launch | ✅ done |
 | B.6 (v1) | v1 smoke (name-only memory, full dump) | ✅ superseded by v2 |
-| v2.1–v2.7 | Trajectory memory + Qwen3-Embedding RAG retrieval; code edits + syntax check | ✅ done |
-| v2.8 | Rebuild image with transformers≥4.51 + Qwen3-Embedding-0.6B pre-baked | ✅ done |
-| v2.9 | v2 smoke test (memory + RAG ON) at `down_sample_ratio=0.1`, all 6 subsets | 🟡 running |
-| v2.10 | A/B comparison vs. baseline | ⏳ pending |
+| v2.1–v2.8 | Trajectory memory + Qwen3-Embedding RAG retrieval; code, build, run | ✅ done |
+| v2.10 (Q4_K_S) | v2 full A/B vs Q4_K_S baseline | ✅ done — see results below |
+| v3.1–v3.3 | Switchable `memory_render` flag; preserves v2 as default, adds `last_only` mode | ✅ done |
+| v3.4 | Rebuild image with v3 edits (~30s, cached layers) | ✅ done |
+| v3.5–v3.6 | Run `complex_instruction` at full with `+memory_render=last_only` (~1.5h) | 🟡 running |
+| v3.7 | Three-way comparison (baseline / v2 / v3) on `complex_instruction` | ⏳ pending |
 
-**Current architecture: v2 = trajectory memory + RAG retrieval.** v1 (first/last-seen, dump-all) is replaced; results from v1 smoke (if any) still live in `results/eb_alfred/.../qwen35_q4km_alf_smoke_memB/`. Future runs from `embench:alfhab-atlasmodified` are v2.
+**v2 vs Q4_K_S baseline (full run, ~300 episodes):**
+
+| Subset | Baseline | v2 | Δ |
+|---|---|---|---|
+| base | 0.34 | 0.46 | **+0.12** |
+| common_sense | 0.38 | 0.36 | -0.02 |
+| complex_instruction | **0.52** | 0.44 | **-0.08** |
+| long_horizon | 0.32 | 0.32 | 0.00 |
+| spatial | 0.34 | 0.38 | +0.04 |
+| visual_appearance | 0.34 | 0.36 | +0.02 |
+
+4 subsets win/tied, 2 regressed. The `complex_instruction` regression is what v3 targets.
+
+**Current architecture: v2 + v3 switchable render mode in one image.** Yaml default = `trajectory` (v2 behavior, byte-identical). CLI override `+memory_render=last_only` enables v3 (drop trajectory, show only most recent sighting per object). Same image, switch at eval time.
 
 ---
 
@@ -72,17 +87,33 @@ Each object's trajectory is rendered as one short string (consecutive same-posit
 
 | File | What changed |
 |---|---|
-| `vlm_planner.py` `__init__` | new kwargs `persistent_memory=False`, `memory_top_k=10`; init `self.observed_objects = {}`; lazy-load `TextEmbedder` from `Qwen3-Embedding-0.6B` (CPU) when memory is on |
+| `vlm_planner.py` `__init__` | new kwargs `persistent_memory=False`, `memory_top_k=10`, `memory_render='trajectory'` (v3); init `self.observed_objects = {}`; lazy-load `TextEmbedder` from `Qwen3-Embedding-0.6B` (CPU) when memory is on |
 | `vlm_planner.py` `reset()` | clear `self.observed_objects` (per-episode) |
 | `vlm_planner.py` `update_info(info)` | for each visible obj dict, append `{step, x, y, z}` to `observed_objects[name]` |
-| `vlm_planner.py` `_render_one_object()` | NEW helper: collapse consecutive same-position sightings into "steps X-Y" runs |
+| `vlm_planner.py` `_render_one_object()` | **v3:** flag-gated dispatch. `memory_render='trajectory'` → v2 behavior (collapse consecutive same-position runs into "steps X-Y"). `memory_render='last_only'` → return only the most recent sighting per object |
 | `vlm_planner.py` `_format_observed_objects_block(user_instruction)` | render every entry, then either dump all (≤K) or top-K via embedding similarity |
 | `vlm_planner.py` `process_prompt()` | both injection sites now pass `user_instruction` so RAG can query against it |
 | `memory_embedder.py` | NEW file — `TextEmbedder` class, ~50 lines, ported from [nutri_rag/embedding.py](../nutri_rag/nutri_rag/embedding.py) (last-token pooling + L2-norm, batch encode) |
 | `EBAlfEnv.py` line 336 | `visible_objs` now emits `{name, x, y, z}` dicts (rounded to 2 decimals) instead of bare strings |
-| `eb_alfred_evaluator.py` | passes `persistent_memory` and `memory_top_k` from config dict to `VLMPlanner(...)` |
-| `eb-alf.yaml` | new keys: `persistent_memory: True`, `memory_top_k: 10` |
+| `eb_alfred_evaluator.py` | passes `persistent_memory`, `memory_top_k`, and `memory_render` (v3) from config dict to `VLMPlanner(...)` |
+| `eb-alf.yaml` | new keys: `persistent_memory: True`, `memory_top_k: 10`, `memory_render: trajectory` (v3 default = v2 behavior) |
 | `Dockerfile.alfhab-atlasmodified` | `pip install --upgrade 'transformers>=4.51.0'`; pre-download Qwen3-Embedding-0.6B into HF cache; 5 surgical COPYs (vlm_planner, memory_embedder, eb-alf.yaml, eb_alfred_evaluator, EBAlfEnv); build-time smoke imports both VLMPlanner and TextEmbedder and asserts both new kwargs are present |
+
+### v3 in one render diff
+
+When the same memory dict (Ladle stationary then picked up) is rendered:
+
+**`memory_render: trajectory`** (yaml default, v2 behavior):
+```
+- Ladle observed at positions (1.23, 0.91, -0.45) at steps 0-1; (1.50, 1.10, -0.20) at step 5
+```
+
+**`memory_render: last_only`** (v3, opt-in via CLI):
+```
+- Ladle last observed at (1.50, 1.10, -0.20) at step 5
+```
+
+The writer side (`update_info`) is unchanged — still records every sighting — so switching renders requires no rebuild, just a CLI flag.
 
 ---
 
@@ -178,17 +209,22 @@ conda activate embench
 export remote_url=http://host.docker.internal:8080/v1
 export OPENAI_API_KEY=EMPTY
 
-# 5. Verify v2 wiring + that nothing got clobbered (catches the broad-COPY regression)
+# 5. Verify v2 + v3 wiring + that nothing got clobbered (catches the broad-COPY regression)
 echo "--- v2 wiring ---"
 grep memory_top_k /opt/embodiedbench/embodiedbench/configs/eb-alf.yaml
 grep -c "observed_objects\|memory_top_k\|memory_embedder" /opt/embodiedbench/embodiedbench/planner/vlm_planner.py
 grep "'name':" /opt/embodiedbench/embodiedbench/envs/eb_alfred/EBAlfEnv.py | head -1
 ls -la /opt/embodiedbench/embodiedbench/planner/memory_embedder.py
+echo "--- v3 switchable-render wiring ---"
+grep "memory_render" /opt/embodiedbench/embodiedbench/configs/eb-alf.yaml
+grep "last observed at" /opt/embodiedbench/embodiedbench/planner/vlm_planner.py
+grep "observed at positions" /opt/embodiedbench/embodiedbench/planner/vlm_planner.py
 echo "--- Phase 4 patch still present ---"
 grep "UseDisplayDevice" /opt/embodiedbench/embodiedbench/envs/eb_alfred/scripts/startx.py
 echo "--- embedder load smoke (~5-10s first time) ---"
 python3 -c "from embodiedbench.planner.memory_embedder import TextEmbedder; e = TextEmbedder(device='cpu'); v = e.encode(['hello']); print('embedder ok, vec shape:', v.shape)"
 # Expected: memory_top_k: 10; grep count >5; 'name': line shown; memory_embedder.py exists;
+#           memory_render: trajectory in yaml; both render branches in vlm_planner.py;
 #           UseDisplayDevice patch present; vec shape (1, 1024).
 
 # 6. Start headless X
@@ -218,12 +254,29 @@ python -m embodiedbench.main \
     model_type=remote \
     exp_name='qwen35_q4ks_alf_full_memB_v2'
 
-# Ablation 1: memory OFF entirely
+# v3: same image, but switch to last_only rendering via CLI flag (note the `+` prefix — see Hydra gotcha below)
 python -m embodiedbench.main \
     env=eb-alf \
     model_name=Qwen3-VL-9B-GGUF \
     model_type=remote \
-    persistent_memory=False \
+    eval_sets=[complex_instruction] \
+    +memory_render=last_only \
+    exp_name='qwen35_q4ks_alf_complexinstr_memB_v3_lastonly'
+
+# v3 full all-subset run (use after v3 single-subset clears the regression)
+python -m embodiedbench.main \
+    env=eb-alf \
+    model_name=Qwen3-VL-9B-GGUF \
+    model_type=remote \
+    +memory_render=last_only \
+    exp_name='qwen35_q4ks_alf_full_memB_v3_lastonly'
+
+# Ablation 1: memory OFF entirely (note: `+` prefix needed if Hydra rejects bare override)
+python -m embodiedbench.main \
+    env=eb-alf \
+    model_name=Qwen3-VL-9B-GGUF \
+    model_type=remote \
+    +persistent_memory=False \
     exp_name='qwen35_q4ks_alf_full_memB_v2_ablation_off'
 
 # Ablation 2: memory ON but RAG disabled by setting top_k absurdly high (effectively dump all)
@@ -231,9 +284,11 @@ python -m embodiedbench.main \
     env=eb-alf \
     model_name=Qwen3-VL-9B-GGUF \
     model_type=remote \
-    memory_top_k=999 \
+    +memory_top_k=999 \
     exp_name='qwen35_q4ks_alf_full_memB_v2_ablation_dumpall'
 ```
+
+**Hydra gotcha: use `+` prefix for memory-related overrides.** Hydra's struct mode rejects plain `key=value` overrides for some keys even when they're defined in the yaml, with the error `Could not override 'memory_render'. To append to your config use +memory_render=last_only`. The `+` prefix is the canonical Hydra escape hatch — it bypasses struct-mode validation and forces the override. Apply it to `memory_render`, `memory_top_k`, `persistent_memory` whenever overriding from the CLI. The yaml defaults still work without the `+` because they're loaded before struct mode kicks in.
 
 **Note on `eval_sets`:** the modified `eb-alf.yaml` has `eval_sets: []` and the evaluator falls back to `ValidEvalSets` (all 6 subsets, in canonical order: `base`, `common_sense`, `complex_instruction`, `spatial`, `visual_appearance`, `long_horizon`) — see [eb_alfred_evaluator.py:44-47](../../work/atlas/mimir/EmbodiedBench/embodiedbench/evaluator/eb_alfred_evaluator.py#L44-L47). So we don't need to pass `eval_sets=[...]` on the CLI; passing it explicitly is risky because typoing a subset name (e.g. `spatial_relationship`) trips an `AssertionError` mid-run after several subsets already finished. Only pass it when you genuinely want a single subset, e.g. `eval_sets=[spatial]` to fill in a missing one.
 
@@ -244,21 +299,39 @@ python -m embodiedbench.main \
 - Re-running with the same `exp_name` but a different subset (e.g. `eval_sets=[spatial]` to fill in a missing one) leaves the other subsets untouched — only the named subset's directory is overwritten.
 - Use a new `exp_name` (or `mv` the old dir to `..._exp_name.v1`) before re-running if you want to preserve the previous results.
 
-### Part F — Verify the memory injection + RAG are actually engaging
+### Part F — Verify the memory injection + RAG + render mode are actually engaging
 
-While the eval is running, in a separate **host** shell, attach to the llama-server tmux:
+While the eval is running, from a separate **host** shell, grep the llama-server tmux scrollback. Non-interactive (recommended):
 
 ```bash
-tmux attach -t qwen-server
-# Detach with Ctrl-B D.
+# How many times has memory been injected?
+tmux capture-pane -pS -10000 -t qwen-server | grep -c "Previously observed objects"
+
+# Which render mode is actually being used?
+tmux capture-pane -pS -10000 -t qwen-server | grep -c "last observed at"        # v3 last_only
+tmux capture-pane -pS -10000 -t qwen-server | grep -c "observed at positions"   # v2 trajectory
+
+# See an actual example
+tmux capture-pane -pS -10000 -t qwen-server | grep -B1 -A5 "Previously observed objects" | tail -40
 ```
 
-Look for two prompt header variants in the request bodies:
+Interactive (alternative): `tmux attach -t qwen-server`, then `Ctrl-B [` to enter copy mode, `/` to search forward, `?` to search backward; `Ctrl-B D` to detach without killing.
 
+**Prompt header variants** (RAG layer):
 - `## Previously observed objects (across earlier steps in this episode):` — appears when memory has ≤10 entries (RAG fallback to dump-all).
 - `## Previously observed objects (top 10 most relevant of N):` — appears once memory has >10 entries; confirms RAG retrieval is engaging.
 
-Entries should look like `- Ladle observed at positions (1.23, 0.91, -0.45) at steps 0-1; (1.50, 1.10, -0.20) at step 5` (trajectory format with consecutive same-position runs collapsed).
+**Per-entry render variants** (v2/v3 switch):
+- `memory_render: trajectory` (v2 default): `- Ladle observed at positions (1.23, 0.91, -0.45) at steps 0-1; (1.50, 1.10, -0.20) at step 5`
+- `memory_render: last_only` (v3): `- Ladle last observed at (1.50, 1.10, -0.20) at step 5`
+
+**Pass criteria:**
+| Result | Meaning |
+|---|---|
+| `last observed at` count > 0 AND `observed at positions` count = 0 | ✅ v3 mode active |
+| `observed at positions` count > 0 AND `last observed at` count = 0 | ✅ v2 mode active (default) |
+| Both > 0 | ⚠️ Mixed — you started one mode, killed it, restarted with the other. Look at the most-recent prompts only |
+| Both = 0 | ⚠️ Eval not started yet OR `persistent_memory` flag is broken |
 
 If neither header appears, the flag isn't threading. If only the first appears even on long episodes, RAG isn't engaging (check `memory_top_k` config). Either case → stop the eval and debug.
 
@@ -298,16 +371,17 @@ If v2 smoke surfaces a flag-threading bug or RAG never engages, pause full runs 
 
 ---
 
-## Open design points (now partially resolved by v2)
+## Open design points (resolution by version)
 
-| Topic | v1 status | v2 status |
-|---|---|---|
-| 3D position | not captured | ✅ captured as world-frame `(x, y, z)` per sighting |
-| RAG over memory | not done | ✅ Qwen3-Embedding-0.6B + top-10 cosine |
-| `parentReceptacles` (container relationships) | not captured | ⏳ still v3 candidate — "Apple is inside Fridge" cues |
-| Forgetting / staleness (`max_age_steps`) | not needed (≤30 step episodes) | still not needed in v2 |
-| Confidence / frequency | not captured | implicitly captured: RAG sees how often each object recurs in the trajectory text |
-| Agent-relative coords (vs world-frame) | not captured | candidate v3 if VLM struggles with raw world-frame numbers |
+| Topic | v1 | v2 | v3 |
+|---|---|---|---|
+| 3D position | not captured | captured | captured (still) |
+| RAG over memory | not done | ✅ Qwen3-Embedding-0.6B + top-10 cosine | unchanged |
+| **Stale-position confusion** (model thinks an object is still at where it last saw it after picking it up) | n/a | **culprit in `complex_instruction` -0.08 regression** | ✅ addressed by `memory_render=last_only` (only most-recent sighting per object) |
+| `parentReceptacles` (container relationships) | not captured | not captured | not captured — v4 candidate |
+| Forgetting / staleness (`max_age_steps`) | not needed (≤30 step episodes) | not needed | not needed |
+| Agent-relative coords (vs world-frame) | not captured | not captured | not captured — v4 candidate if VLM still struggles with world-frame numbers |
+| **Runtime switchability** between render modes | n/a | n/a | ✅ `memory_render` flag in yaml + CLI |
 
 ---
 
