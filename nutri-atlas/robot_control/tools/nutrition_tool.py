@@ -81,6 +81,13 @@ class GetMealRecommendation(BaseTool):
 
         print(f'[nutrition] eaten="{eaten_foods}", meal_type={eaten_meal_type}, next={next_meal}')
 
+        # Pull availability filter from env-configured source (none|json|zmq).
+        # Default "none" preserves the current behavior with no filter.
+        from nutri_rag.assistant.availability import get_available_fdc_ids
+        available_fdc_ids = get_available_fdc_ids()
+        if available_fdc_ids is not None:
+            print(f'[nutrition] availability filter: {len(available_fdc_ids)} fdc_ids')
+
         try:
             assistant = _get_assistant()
             recommendation = assistant.recommend(
@@ -88,6 +95,7 @@ class GetMealRecommendation(BaseTool):
                 eaten_description=eaten_foods,
                 eaten_meal_type=eaten_meal_type,
                 next_meal=next_meal,
+                available_fdc_ids=available_fdc_ids,
             )
             return json.dumps({
                 'status': 'ok',

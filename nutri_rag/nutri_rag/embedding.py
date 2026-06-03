@@ -260,30 +260,54 @@ class RecipeVectorIndex:
     def search_by_ids(
         self,
         query_vector: np.ndarray,
-        candidate_recipe_ids: list[int],
+        candidate_recipe_ids: list[int] | None = None,
         k: int = 20,
         lam: float = 0.3,
+        mode: str | None = None,
+        q_gat: np.ndarray | None = None,
     ) -> list[tuple[int, float, float, float]]:
         """Score and rank candidate recipes by combined text + GAT similarity.
 
         Args:
-            query_vector: (dim,) L2-normalized query embedding.
-            candidate_recipe_ids: list of recipe_ids to score.
+            query_vector: (text_dim,) L2-normalized text query embedding.
+            candidate_recipe_ids: list of recipe_ids to score. None = score all
+                recipes (Phase D embedding-first style, ~4ms for 82k recipes).
             k: max results to return.
             lam: GAT weight in combined score.
+            mode: GAT scoring mode (Phase D Gap 1).
+                "hybrid"        — query-conditioned via pseudo-anchor (new default):
+                                  q_gat* = GAT[text top-1 within pool], then
+                                  gat_score = cos(q_gat*, recipe_gat). Same shape
+                                  as NutriBench v5 and Phase B/C.
+                "external_gat"  — caller supplies a graph-space query vec via
+                                  `q_gat` (e.g. mean of food GAT vectors for the
+                                  robot meal layer). Recipe-GAT lives in the
+                                  same joint node-embedding space as food-GAT.
+                "pool_centroid" — LEGACY: gat_score = cos(recipe_gat, mean(pool)).
+                                  Pool-typicality, not query-conditioned. Kept
+                                  for backward-compat with historical PFoodReq
+                                  numbers; opt in via RECIPE_SCORE_MODE.
+                None (default)  — reads RECIPE_SCORE_MODE env var, falls back
+                                  to "hybrid" if unset.
+            q_gat: graph-space query vector (used only when mode="external_gat").
 
         Returns:
             List of (recipe_id, combined_score, text_score, gat_score),
             sorted by combined_score descending.
         """
-        # Map recipe_ids to indices, skip unknown
-        indices = []
-        valid_ids = []
-        for rid in candidate_recipe_ids:
-            idx = self._id_to_idx.get(int(rid))
-            if idx is not None:
-                indices.append(idx)
-                valid_ids.append(int(rid))
+        # Default candidate set = all recipes (embedding-first Phase D style)
+        if candidate_recipe_ids is None:
+            indices = list(range(len(self.recipe_ids)))
+            valid_ids = [int(rid) for rid in self.recipe_ids]
+        else:
+            # Map recipe_ids to indices, skip unknown
+            indices = []
+            valid_ids = []
+            for rid in candidate_recipe_ids:
+                idx = self._id_to_idx.get(int(rid))
+                if idx is not None:
+                    indices.append(idx)
+                    valid_ids.append(int(rid))
 
         if not indices:
             return []
@@ -293,18 +317,35 @@ class RecipeVectorIndex:
         # Text scores
         text_scores = query_vector @ self.text_embeddings[idx_arr].T  # (N_candidates,)
 
-        # GAT scores
-        if self.gat_embeddings is not None and lam > 0:
-            # Use mean of all candidate GAT vectors as "query nutritional profile"
-            # Then score each candidate against the overall profile
-            gat_vecs = self.gat_embeddings[idx_arr]  # (N_candidates, gat_dim)
-            # Self-similarity: how central is each recipe in the candidate pool
-            mean_gat = gat_vecs.mean(axis=0)
-            mean_gat = mean_gat / (np.linalg.norm(mean_gat) + 1e-8)
-            gat_scores = gat_vecs @ mean_gat  # (N_candidates,)
-        else:
+        # GAT scores — three modes, picked via `mode` arg or env var
+        if mode is None:
+            mode = os.environ.get("RECIPE_SCORE_MODE", "hybrid")
+
+        if self.gat_embeddings is None or lam <= 0:
+            # No GAT embeddings loaded, or GAT weight is zero
             gat_scores = np.zeros(len(indices), dtype=np.float32)
             lam = 0.0
+        else:
+            gat_vecs = self.gat_embeddings[idx_arr]  # (N_candidates, gat_dim)
+
+            if mode == "external_gat":
+                if q_gat is None:
+                    raise ValueError("mode='external_gat' requires q_gat to be provided")
+                # Normalize q_gat defensively (recipe gat_embeddings are pre-normed)
+                q_gat_norm = q_gat / (np.linalg.norm(q_gat) + 1e-8)
+                gat_scores = gat_vecs @ q_gat_norm
+
+            elif mode == "pool_centroid":
+                # LEGACY: cosine to pool centroid (pool-typicality, not query-conditioned)
+                mean_gat = gat_vecs.mean(axis=0)
+                mean_gat = mean_gat / (np.linalg.norm(mean_gat) + 1e-8)
+                gat_scores = gat_vecs @ mean_gat
+
+            else:  # "hybrid" (new default) — pseudo-anchor via text top-1
+                seed_local = int(np.argmax(text_scores))
+                q_gat_star = gat_vecs[seed_local]
+                q_gat_star = q_gat_star / (np.linalg.norm(q_gat_star) + 1e-8)
+                gat_scores = gat_vecs @ q_gat_star
 
         # Combined score
         combined = (1 - lam) * text_scores + lam * gat_scores

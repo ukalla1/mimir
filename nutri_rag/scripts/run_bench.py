@@ -49,6 +49,24 @@ TASK_DIRS = {
         "task_name": "nutribench_v2_rag_gat_multi",
         "template_name": "_rag_gat_multi_default_template_yaml",
     },
+    "v4": {
+        # Pure GAT via text-bootstrapped pseudo-anchor
+        "src": os.path.join(NUTRI_RAG_ROOT, "tasks", "nutribench_v2_rag_gat_pure"),
+        "dst": os.path.join(LM_EVAL_DIR, "lm_eval", "tasks", "nutribench", "v2", "rag_gat_pure"),
+        "task_name": "nutribench_v2_rag_gat_pure",
+        "template_name": "_rag_gat_pure_default_template_yaml",
+    },
+    "v5": {
+        # Score-fusion hybrid via pseudo-anchor (alpha-tunable).
+        # Tests the exact code path used by the robot assistant's eaten-side
+        # food identification (see nutri_rag/assistant/pipeline.py:_lookup_eaten_foods,
+        # which calls search_food_v2 with the same args). v5 acc/MAE predicts
+        # the robot's eaten-side quality directly.
+        "src": os.path.join(NUTRI_RAG_ROOT, "tasks", "nutribench_v2_rag_hybrid"),
+        "dst": os.path.join(LM_EVAL_DIR, "lm_eval", "tasks", "nutribench", "v2", "rag_hybrid"),
+        "task_name": "nutribench_v2_rag_hybrid",
+        "template_name": "_rag_hybrid_default_template_yaml",
+    },
 }
 
 # Ensure nutri_rag is importable
@@ -117,8 +135,16 @@ def ensure_task_symlink(task_src: str, task_dst: str):
 
 def main():
     parser = argparse.ArgumentParser(description="Run NutriBench v2 RAG benchmark")
-    parser.add_argument("--mode", choices=["v0", "v1", "v2", "v3"], default="v1",
-                        help="v0 = BM25, v1 = text emb, v2 = text+GAT, v3 = text+GAT multi-candidate (default: v1)")
+    parser.add_argument("--mode", choices=["v0", "v1", "v2", "v3", "v4", "v5"], default="v1",
+                        help=(
+                            "v0 = BM25, v1 = text emb, v2 = text+GAT-expand, "
+                            "v3 = text+GAT-expand multi-cand, "
+                            "v4 = pure GAT (pseudo-anchor), "
+                            "v5 = hybrid score fusion (pseudo-anchor) "
+                            "(default: v1)"
+                        ))
+    parser.add_argument("--alpha", type=float, default=0.5,
+                        help="GAT weight for v5 (hybrid). Set via NUTRI_HYBRID_ALPHA env var (default: 0.5)")
     parser.add_argument("--nutrient", choices=["carb", "protein", "fat", "energy"], default="carb",
                         help="Target nutrient to evaluate (default: carb)")
     parser.add_argument("--limit", type=int, default=None,
@@ -135,6 +161,8 @@ def main():
 
     # Set NUTRI_TARGET env var so task utils pick it up
     os.environ["NUTRI_TARGET"] = args.nutrient
+    # v5 hybrid uses NUTRI_HYBRID_ALPHA inside the task utils
+    os.environ["NUTRI_HYBRID_ALPHA"] = str(args.alpha)
 
     # Resolve task config for selected mode
     task_cfg = TASK_DIRS[args.mode]
@@ -154,7 +182,14 @@ def main():
     base_url = f"http://localhost:{args.port}/v1/chat/completions"
     model_args = f"model=qwen3.5-9b,base_url={base_url},num_concurrent={args.concurrent},max_retries={args.max_retries}"
 
-    mode_labels = {"v0": "V0 (BM25)", "v1": "V1 (Dense)", "v2": "V2 (Dense+GAT)", "v3": "V3 (Multi-candidate)"}
+    mode_labels = {
+        "v0": "V0 (BM25)",
+        "v1": "V1 (Dense)",
+        "v2": "V2 (Dense+GAT)",
+        "v3": "V3 (Multi-candidate)",
+        "v4": "V4 (Pure-GAT, pseudo-anchor)",
+        "v5": f"V5 (Hybrid α={args.alpha:.2f}, pseudo-anchor)",
+    }
     mode_label = mode_labels[args.mode]
     print(f"==> Running NutriBench v2 RAG benchmark [{mode_label}] [nutrient: {args.nutrient}]")
     print(f"    Server: {base_url}")

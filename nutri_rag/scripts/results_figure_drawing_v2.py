@@ -61,34 +61,12 @@ SUBTASK_TITLES = {
 # Our quantized Qwen3.5-9B GGUF runs:
 #   (short label, GGUF on-disk size GB, EB run-dir, modified run-dir)
 OUR_MODELS = [
-    ("IQ2_M",  3.4,
+    ("UD-IQ2_M",  3.4,
      "Qwen3-VL-9B-GGUF_qwen35_iq2m_alf_full",
      "Qwen3-VL-9B-GGUF_qwen35_iq2m_alf_full_memB_v2"),
     ("Q4_K_S", 5.1,
      "Qwen3-VL-9B-GGUF_qwen35_q4ks_alf_full",
      "Qwen3-VL-9B-GGUF_qwen35_q4ks_alf_full_memB_v2"),
-]
-
-# Closed-weight (proprietary) baselines from the EmbodiedBench leaderboard.
-# Parameter counts are NOT publicly disclosed, so these have no size_gb
-# (the right-axis diamond is omitted for them).
-CLOSED_MODELS = [
-    ("Claude-3.7-Sonnet",  {"base":68.0,"common_sense":68.0,"complex_instruction":70.0,
-                            "long_horizon":70.0,"spatial":62.0,"visual_appearance":68.0}),
-    ("Claude-3.5-Sonnet",  {"base":72.0,"common_sense":66.0,"complex_instruction":76.0,
-                            "long_horizon":52.0,"spatial":58.0,"visual_appearance":60.0}),
-    ("Gemini-1.5-Pro",     {"base":70.0,"common_sense":64.0,"complex_instruction":72.0,
-                            "long_horizon":58.0,"spatial":52.0,"visual_appearance":58.0}),
-    ("GPT-4o",             {"base":64.0,"common_sense":54.0,"complex_instruction":68.0,
-                            "long_horizon":54.0,"spatial":52.0,"visual_appearance":46.0}),
-    ("Gemini-2.0-flash",   {"base":62.0,"common_sense":48.0,"complex_instruction":54.0,
-                            "long_horizon":58.0,"spatial":46.0,"visual_appearance":46.0}),
-    ("Qwen-VL-Max",        {"base":44.0,"common_sense":48.0,"complex_instruction":44.0,
-                            "long_horizon":32.0,"spatial":38.0,"visual_appearance":42.0}),
-    ("Gemini-1.5-flash",   {"base":44.0,"common_sense":40.0,"complex_instruction":56.0,
-                            "long_horizon":28.0,"spatial":26.0,"visual_appearance":42.0}),
-    ("GPT-4o-mini",        {"base":34.0,"common_sense":28.0,"complex_instruction":36.0,
-                            "long_horizon": 0.0,"spatial":22.0,"visual_appearance":24.0}),
 ]
 
 # Open-source baselines from the EmbodiedBench leaderboard, sorted by
@@ -132,7 +110,6 @@ REF_MODELS = [
 COLOR_ORIGIN   = "#3A6BA5"   # steel blue   — Qwen3.5-9B original run
 COLOR_MEMORY   = "#E76F51"   # warm coral   — Qwen3.5-9B with memory (highlight)
 COLOR_BASELINE = "#2A9D8F"   # teal         — open-source baselines
-COLOR_CLOSED   = "#8E44AD"   # purple       — closed-weight baselines (size undisclosed)
 SIZE_MARKER_COLOR = "#D4AC0D"  # gold       — model size diamonds
 
 
@@ -159,13 +136,16 @@ def main():
     plt.rcParams.update({
         "font.family": "serif",
         "font.serif": ["Times New Roman", "DejaVu Serif"],
-        "font.size": 8,
-        "axes.labelsize": 8,
-        "axes.titlesize": 9,
-        "xtick.labelsize": 5.5,
-        "ytick.labelsize": 7,
-        "legend.fontsize": 7,
-        "axes.linewidth": 0.8,
+        "font.size": 14,
+        "font.weight": "bold",
+        "axes.labelsize": 14,
+        "axes.labelweight": "bold",
+        "axes.titlesize": 16,
+        "axes.titleweight": "bold",
+        "xtick.labelsize": 11,
+        "ytick.labelsize": 12,
+        "legend.fontsize": 14,
+        "axes.linewidth": 1.0,
     })
 
     fig, axes = plt.subplots(2, 3, figsize=(20.0, 7.0), sharey=False)
@@ -174,15 +154,12 @@ def main():
 
     n_our    = len(OUR_MODELS)
     n_ref    = len(REF_MODELS)
-    n_closed = len(CLOSED_MODELS)
 
     our_positions    = np.arange(n_our)                                          # 0, 1
     ref_positions    = np.arange(n_ref)    + n_our + 0.5                         # 2.5 ...
-    closed_positions = np.arange(n_closed) + n_our + n_ref + 1.0                 # after refs
-    all_positions = np.concatenate([our_positions, ref_positions, closed_positions])
+    all_positions = np.concatenate([our_positions, ref_positions])
     all_labels    = ([m[0] for m in OUR_MODELS]
-                     + [m[0] for m in REF_MODELS]
-                     + [m[0] for m in CLOSED_MODELS])
+                     + [m[0] for m in REF_MODELS])
 
     for ax, subtask in zip(axes.flat, SUBTASKS):
         origin_vals = []
@@ -208,11 +185,6 @@ def main():
         ax.bar(ref_positions, ref_vals, bar_width * 1.2,
                color=COLOR_BASELINE, edgecolor="black", linewidth=0.4, zorder=3)
 
-        # Closed-weight baselines (purple) — no size diamond on right axis
-        closed_vals = [m[1][subtask] for m in CLOSED_MODELS]
-        ax.bar(closed_positions, closed_vals, bar_width * 1.2,
-               color=COLOR_CLOSED, edgecolor="black", linewidth=0.4, zorder=3)
-
         ax.set_xticks(all_positions)
         ax.set_xticklabels(all_labels, rotation=45, ha="right")
         ax.set_ylim(0, 100)
@@ -222,8 +194,6 @@ def main():
         ax.tick_params(direction="in", length=3)
 
         # Right Y axis — model size on log scale (covers 3-180 GB)
-        # Closed-weight models have no size diamond (sizes are not publicly
-        # disclosed; we refuse to plot unsupported values).
         ax2 = ax.twinx()
         sized_positions = np.concatenate([our_positions, ref_positions])
         sized_values    = our_sizes + ref_sizes
@@ -240,19 +210,17 @@ def main():
     # Shared legend at the top
     legend_handles = [
         Patch(facecolor=COLOR_ORIGIN, edgecolor="black", linewidth=0.5,
-              label="Origin"),
+              label="Qwen3.5-9B original"),
         Patch(facecolor=COLOR_MEMORY, edgecolor="black", linewidth=0.5,
-              label="With memory"),
+              label="Nutri-ATLAS"),
         Patch(facecolor=COLOR_BASELINE, edgecolor="black", linewidth=0.5,
               label="Open-source baselines"),
-        Patch(facecolor=COLOR_CLOSED, edgecolor="black", linewidth=0.5,
-              label="Closed-weight baselines (size undisclosed)"),
         Line2D([0], [0], marker="D", linestyle="none",
                markerfacecolor=SIZE_MARKER_COLOR, markeredgecolor="black",
                markeredgewidth=0.6, markersize=6, label="Model size (GB)"),
     ]
     fig.legend(handles=legend_handles, loc="upper center",
-               ncol=5, frameon=False,
+               ncol=4, frameon=False,
                bbox_to_anchor=(0.5, 1.02))
 
     fig.tight_layout(rect=(0, 0, 1, 0.94), w_pad=1.6, h_pad=1.6)

@@ -7,6 +7,8 @@ like "groundnut" vs "peanut", "maize flour" vs "corn flour", etc.
 
 from __future__ import annotations
 
+from typing import Callable
+
 import duckdb
 import numpy as np
 import pandas as pd
@@ -212,6 +214,305 @@ def _gat_expand(
                          ignore_index=True)
 
     return combined
+
+
+# ── Unified hybrid retrieval primitive (used by NutriBench v4/v5,
+#    robot eaten-side, robot food-neighbor expansion, robot recommend_v2) ──
+
+_fdc_to_arr_idx: dict[int, int] | None = None
+
+
+def _get_fdc_to_arr_idx() -> dict[int, int]:
+    """fdc_id → arr_idx mapping. FoodVectorIndex.fdc_ids is arr_idx → fdc_id.
+
+    FoodVectorIndex and GATIndex share the same arr_idx ordering, so the
+    same dict works for both text and GAT lookups.
+    """
+    global _fdc_to_arr_idx
+    if _fdc_to_arr_idx is None:
+        index = _get_index()
+        _fdc_to_arr_idx = {int(fid): i for i, fid in enumerate(index.fdc_ids)}
+    return _fdc_to_arr_idx
+
+
+def hybrid_rank(
+    q_text: np.ndarray | None = None,
+    q_gat: np.ndarray | None = None,
+    candidate_fdc_ids: list[int] | None = None,
+    alpha: float = 0.5,
+    structured_filter: Callable[[int], bool] | None = None,
+    structured_score: Callable[[int], float] | None = None,
+    structured_weight: float = 0.0,
+    k: int = 5,
+    db_path: str = DB_PATH,
+) -> pd.DataFrame:
+    """Unified score-fusion retrieval over the food index.
+
+    Score per candidate x:
+        s(x) = alpha · cos(q_gat,  x_gat)        (if q_gat  is not None)
+             + (1-alpha) · cos(q_text, x_text)   (if q_text is not None)
+             + structured_weight · structured_score(x)   (if provided)
+
+    When only one of (q_text, q_gat) is provided, alpha is overridden so the
+    available vector dominates:
+        q_text only → effective alpha = 0  (pure text)
+        q_gat  only → effective alpha = 1  (pure GAT)
+
+    Args:
+        q_text: 1-d text query vector (1024-d, L2-normalized) or None.
+        q_gat:  1-d GAT  query vector (64-d,   L2-normalized) or None.
+        candidate_fdc_ids: optional restriction of the candidate pool.
+        alpha: GAT weight in [0, 1]; ignored when only one of q_* is given.
+        structured_filter: returns False to exclude a candidate.
+        structured_score:  additive structured term (range ~[0, 1] expected).
+        structured_weight: weight on the structured term (default 0 → unused).
+        k: number of top-k candidates to return.
+
+    Returns DataFrame with columns [fdc_id, description, text_sim, gat_sim,
+    struct, total], sorted by total desc, k rows.
+    """
+    if q_text is None and q_gat is None:
+        raise ValueError("hybrid_rank requires at least one of q_text or q_gat")
+
+    text_index = _get_index() if q_text is not None else None
+    gat_index = _get_gat_index() if q_gat is not None else None
+
+    # Determine candidate arr_idx set
+    if candidate_fdc_ids is not None:
+        fdc_to_arr = _get_fdc_to_arr_idx()
+        arr_idxs = np.array(
+            [fdc_to_arr[int(fid)] for fid in candidate_fdc_ids if int(fid) in fdc_to_arr],
+            dtype=np.int64,
+        )
+        if arr_idxs.size == 0:
+            return pd.DataFrame(columns=["fdc_id", "description", "text_sim", "gat_sim", "struct", "total"])
+    else:
+        ref = text_index if text_index is not None else gat_index
+        arr_idxs = np.arange(ref.embeddings.shape[0], dtype=np.int64)
+
+    # Compute per-space similarities
+    if q_text is not None:
+        text_sims = text_index.embeddings[arr_idxs] @ q_text  # (M,)
+    else:
+        text_sims = np.zeros(arr_idxs.shape, dtype=np.float32)
+
+    if q_gat is not None:
+        gat_sims = gat_index.embeddings[arr_idxs] @ q_gat     # (M,)
+    else:
+        gat_sims = np.zeros(arr_idxs.shape, dtype=np.float32)
+
+    # Effective alpha when one vector is missing
+    if q_text is None:
+        eff_alpha = 1.0
+    elif q_gat is None:
+        eff_alpha = 0.0
+    else:
+        eff_alpha = float(alpha)
+
+    sim_scores = eff_alpha * gat_sims + (1.0 - eff_alpha) * text_sims
+
+    # Resolve fdc_id per arr_idx. Both FoodVectorIndex and GATIndex share
+    # the same arr_idx ordering (nodes_food heap order), but only
+    # FoodVectorIndex stores fdc_ids — load it as the canonical mapping.
+    fdc_ids = np.asarray(_get_index().fdc_ids)[arr_idxs].astype(np.int64)
+
+    # Structured filter as hard mask
+    if structured_filter is not None:
+        mask = np.array([bool(structured_filter(int(fid))) for fid in fdc_ids])
+        if not mask.any():
+            return pd.DataFrame(columns=["fdc_id", "description", "text_sim", "gat_sim", "struct", "total"])
+        arr_idxs = arr_idxs[mask]
+        fdc_ids = fdc_ids[mask]
+        text_sims = text_sims[mask]
+        gat_sims = gat_sims[mask]
+        sim_scores = sim_scores[mask]
+
+    # Structured additive score
+    if structured_score is not None and structured_weight != 0.0:
+        struct = np.array([float(structured_score(int(fid))) for fid in fdc_ids])
+    else:
+        struct = np.zeros(fdc_ids.shape, dtype=np.float32)
+
+    total = sim_scores + structured_weight * struct
+
+    # Top-k
+    k = int(min(k, len(total)))
+    if k <= 0:
+        return pd.DataFrame(columns=["fdc_id", "description", "text_sim", "gat_sim", "struct", "total"])
+
+    top_local = np.argpartition(total, -k)[-k:]
+    top_local = top_local[np.argsort(total[top_local])[::-1]]
+
+    rows = []
+    for j in top_local:
+        fid = int(fdc_ids[j])
+        rows.append({
+            "fdc_id": fid,
+            "description": _get_description(fid, db_path),
+            "text_sim": float(text_sims[j]),
+            "gat_sim": float(gat_sims[j]),
+            "struct": float(struct[j]),
+            "total": float(total[j]),
+        })
+    return pd.DataFrame(rows)
+
+
+def search_food_v2(
+    query: str,
+    mode: str = "hybrid",
+    k: int = TOP_K_FOODS,
+    alpha: float = 0.5,
+    db_path: str = DB_PATH,
+) -> pd.DataFrame:
+    """Food→nutrition retrieval with unified text / gat / hybrid modes.
+
+    Uses a text-bootstrapped pseudo-anchor for gat and hybrid modes, since
+    the query is free text and has no native GAT vector:
+
+        q_text = embed(query)
+        seed   = text top-1 candidate
+        q_gat* = GAT[seed]
+
+    Modes:
+      "text"   — text cosine only           (NutriBench v1 equivalent)
+      "gat"    — pure GAT via pseudo-anchor (NutriBench v4, new)
+      "hybrid" — alpha·gat + (1-alpha)·text via pseudo-anchor (NutriBench v5, new)
+
+    Returns a DataFrame with the same shape as search_food (fdc_id,
+    description, text_score) for downstream compatibility — the text_score
+    column is the fused score for gat/hybrid modes.
+    """
+    embedder = _get_embedder()
+    q_text = embedder.encode([query], task_instruction=FOOD_SEARCH_INSTRUCTION)[0]  # (dim,)
+
+    if mode == "text":
+        df = hybrid_rank(q_text=q_text, q_gat=None, alpha=0.0, k=k, db_path=db_path)
+    else:
+        # Pseudo-anchor: pick text top-1 to obtain a GAT query vector
+        text_index = _get_index()
+        gat_index = _get_gat_index()
+        seed_results = text_index.search(q_text[None, :], k=1)
+        if not seed_results or not seed_results[0]:
+            # Fall back to text mode if no candidate found
+            df = hybrid_rank(q_text=q_text, q_gat=None, alpha=0.0, k=k, db_path=db_path)
+        else:
+            _, _, seed_arr_idx = seed_results[0][0]
+            q_gat_star = gat_index.embeddings[seed_arr_idx]
+            if mode == "gat":
+                df = hybrid_rank(q_text=None, q_gat=q_gat_star, alpha=1.0, k=k, db_path=db_path)
+            elif mode == "hybrid":
+                df = hybrid_rank(q_text=q_text, q_gat=q_gat_star, alpha=alpha, k=k, db_path=db_path)
+            else:
+                raise ValueError(f"unknown mode: {mode!r} (expected text/gat/hybrid)")
+
+    if df.empty:
+        return pd.DataFrame(columns=["fdc_id", "description", "text_score"])
+
+    # Match search_food's output schema for downstream call sites
+    out = df[["fdc_id", "description", "total"]].rename(columns={"total": "text_score"})
+    return out.reset_index(drop=True)
+
+
+# ── Recipe-side hybrid rank (Phase D) ─────────────────────────────────
+#
+# Mirrors hybrid_rank's role but over the RecipeVectorIndex. Used by:
+#   - assistant/meal_recommender.MealRecommender (robot pipeline)
+#   - scripts/run_pfoodreq_bench.py --retrieval-style embedding_first (testing)
+# Both call sites share this function so a regression here shows up in both
+# the robot's meal suggestions and PFoodReq scores.
+
+_recipe_index = None
+
+
+def _get_recipe_index():
+    """Lazy-init RecipeVectorIndex singleton (deferred until first recipe call)."""
+    global _recipe_index
+    if _recipe_index is None:
+        # Import here to avoid loading recipe embeddings unless needed
+        from nutri_rag.embedding import RecipeVectorIndex
+        _recipe_index = RecipeVectorIndex()
+    return _recipe_index
+
+
+def hybrid_rank_recipes(
+    q_text: np.ndarray,
+    q_gat: np.ndarray | None = None,
+    candidate_recipe_ids: list[int] | None = None,
+    alpha: float = 0.5,
+    structured_score: Callable[[int], float] | None = None,
+    structured_weight: float = 0.0,
+    structured_filter: Callable[[int], bool] | None = None,
+    k: int = 30,
+    db_path: str = DB_PATH,
+) -> pd.DataFrame:
+    """Recipe-store analog of hybrid_rank.
+
+    Same algorithmic shape as Phase A's search_food_v2, Phase B's
+    _hybrid_neighbors, and Phase C's recommend_v2 — just over the
+    RecipeVectorIndex instead of the food index.
+
+    Args:
+        q_text: (text_dim,) text query vector (L2-normalized).
+        q_gat:  optional graph-space query vector. When provided, uses the
+                'external_gat' mode of RecipeVectorIndex.search_by_ids —
+                recipe-GAT is in the same node-embedding space as food-GAT,
+                so callers can pass mean(GAT_food[recommended_fdc_ids])
+                directly. When None, falls back to the pseudo-anchor 'hybrid'
+                mode (text-top-1 within pool → q_gat*).
+        candidate_recipe_ids: optional restriction. None = score all recipes.
+        alpha: GAT weight; (1-alpha) is the text weight.
+        structured_score: optional per-recipe additive term in [-1, 1].
+        structured_weight: weight on the structured term (default 0 = unused).
+        structured_filter: optional hard mask (returns False to exclude).
+        k: top-k to return.
+
+    Returns DataFrame: [recipe_id, text_sim, gat_sim, struct, total].
+    """
+    index = _get_recipe_index()
+
+    # Step 1: candidate pool
+    if candidate_recipe_ids is None:
+        valid_ids = [int(rid) for rid in index.recipe_ids]
+    else:
+        valid_ids = [int(rid) for rid in candidate_recipe_ids
+                     if int(rid) in index._id_to_idx]
+    if not valid_ids:
+        return pd.DataFrame(columns=["recipe_id", "text_sim", "gat_sim", "struct", "total"])
+
+    # Step 2: hard filter
+    if structured_filter is not None:
+        valid_ids = [rid for rid in valid_ids if structured_filter(rid)]
+        if not valid_ids:
+            return pd.DataFrame(columns=["recipe_id", "text_sim", "gat_sim", "struct", "total"])
+
+    # Step 3: delegate scoring to RecipeVectorIndex.search_by_ids
+    # We pull more than k from the scorer so structured_score can re-rank.
+    fetch_k = max(k * 3, k) if structured_score is not None else k
+    mode = "external_gat" if q_gat is not None else "hybrid"
+    raw = index.search_by_ids(
+        query_vector=q_text,
+        candidate_recipe_ids=valid_ids,
+        k=fetch_k,
+        lam=alpha,
+        mode=mode,
+        q_gat=q_gat,
+    )
+    # raw is list of (recipe_id, combined, text, gat)
+
+    rows = []
+    for rid, combined, text_sim, gat_sim in raw:
+        struct = float(structured_score(rid)) if structured_score is not None else 0.0
+        total = combined + structured_weight * struct
+        rows.append({
+            "recipe_id": int(rid),
+            "text_sim": float(text_sim),
+            "gat_sim": float(gat_sim),
+            "struct": struct,
+            "total": total,
+        })
+
+    df = pd.DataFrame(rows).sort_values("total", ascending=False).head(k)
+    return df.reset_index(drop=True)
 
 
 def get_nutrients(
