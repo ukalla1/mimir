@@ -680,19 +680,19 @@ bash scripts/start_server.sh
 
 # Terminal 2 — robot assistant (YOLO detector, default)
 cd ~/work/atlas/mimir/nutri-atlas/robot_control
-python robot_assistant.py --robot-ip 192.168.0.114 --detection-mode real
+python robot_assistant.py --robot-ip 192.168.0.164 --detection-mode real
 
 # Terminal 2 — robot assistant (VLM detector — open-vocab, uses LLM vision)
-python robot_assistant.py --robot-ip 192.168.0.114 --detection-mode real --detector vlm
+python robot_assistant.py --robot-ip 192.168.0.164 --detection-mode real --detector vlm
 
 # Terminal 3a — manual detector: press Enter to push current frame to robot
 cd ~/work/atlas/mimir/nutri-atlas/robot_control/tools
-python detector_node_real_world.py --robot-ip 192.168.0.114
+python detector_node_real_world.py --robot-ip 192.168.0.164
 
 # Terminal 3b — auto detector (alternative to 3a): sends detections automatically
-python detector_node_real_world_auto.py --robot-ip 192.168.0.114
+python detector_node_real_world_auto.py --robot-ip 192.168.0.164
 # Filter by label and confidence:
-python detector_node_real_world_auto.py --robot-ip 192.168.0.114 \
+python detector_node_real_world_auto.py --robot-ip 192.168.0.164 \
     --targets person chair --stable-conf 0.6 --stable-frames 10
 
 # --- Simulation ---
@@ -715,7 +715,8 @@ python robot_assistant.py --robot-ip 127.0.0.1
 ### Network Checklist
 
 - Both machines on the same subnet (e.g. `192.168.0.x`).
-- Verify connectivity: `ping <robot_ip>` from operator PC.
+- **Get the robot's current Wi-Fi IP** by running `hostname -I` on the robot itself — DHCP leases can change between reboots, so don't assume the example IP above is still valid. The robot typically reports three addresses: the Unitree internal `192.168.123.x` (do NOT use), the Wi-Fi `192.168.0.x` (use this one), and a Docker bridge `172.17.x.x` (ignore).
+- Verify connectivity from the operator PC: `ping <robot_ip>` must succeed before launching `robot_assistant.py`, otherwise every ZMQ call will time out after 10s with "No reply from robot".
 - Firewall allows inbound TCP `5555` on robot (real world); also `5556` for simulation.
 - LLM server runs on `localhost:8080` on the operator PC only.
 

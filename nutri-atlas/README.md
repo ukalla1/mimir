@@ -81,9 +81,12 @@ CLI args take precedence over environment variables:
 cd nutri-atlas/robot_control
 python robot_assistant.py --robot-ip 127.0.0.1
 
-# Real world
-python robot_assistant.py --robot-ip 192.168.0.114 --detection-mode real
+# Real world — replace 192.168.0.164 with whatever `hostname -I` reports on the
+# robot's Wi-Fi interface (DHCP may have changed it since the last session).
+python robot_assistant.py --robot-ip 192.168.0.164 --detection-mode real
 ```
+
+> **Get the robot's IP first.** SSH to the robot (or attach a keyboard) and run `hostname -I`. You'll typically see three addresses — use the `192.168.0.x` one (Wi-Fi), not `192.168.123.x` (Unitree internal) or `172.17.x.x` (Docker). Verify from the operator PC with `ping <robot_ip>` before launching — if it fails, `robot_assistant.py` will hang for 10s on startup with "No reply from robot".
 
 ### 3. Real-world only: start the YOLO detector (separate terminal)
 
@@ -91,11 +94,11 @@ python robot_assistant.py --robot-ip 192.168.0.114 --detection-mode real
 cd nutri-atlas/robot_control/tools
 
 # Manual: press Enter to push current frame to robot
-python detector_node_real_world.py --robot-ip 192.168.0.114
+python detector_node_real_world.py --robot-ip 192.168.0.164
 
 # Automatic: sends detections after N stable frames without manual input
-python detector_node_real_world_auto.py --robot-ip 192.168.0.114
-python detector_node_real_world_auto.py --robot-ip 192.168.0.114 \
+python detector_node_real_world_auto.py --robot-ip 192.168.0.164
+python detector_node_real_world_auto.py --robot-ip 192.168.0.164 \
     --targets person chair --stable-conf 0.6 --stable-frames 10
 ```
 
