@@ -6,11 +6,13 @@ Wires together: parser -> DB search -> gap analysis -> DB nutrient query
 
 from __future__ import annotations
 
+import os
+
 import duckdb
 
 from nutri_rag.config import DB_PATH, FOOD_EMBEDDINGS_PATH, USER_DB_PATH
 from nutri_rag.parse import parse_meal
-from nutri_rag.search import search_food, get_nutrients
+from nutri_rag.search import search_food, search_food_v2, get_nutrients
 from nutri_rag.llm import chat_completion
 from nutri_rag.assistant.gap_analyzer import analyze_gap
 from nutri_rag.assistant.food_recommender import FoodRecommender
@@ -26,11 +28,39 @@ class NutriAssistant:
         db_path: str = DB_PATH,
         embeddings_path: str = FOOD_EMBEDDINGS_PATH,
         user_db_path: str = USER_DB_PATH,
+        eaten_retrieval_mode: str | None = None,
     ):
         self._db_path = db_path
         self._con: duckdb.DuckDBPyConnection | None = None
         self._recommender = FoodRecommender(db_path, embeddings_path)
         self._pref_db = PreferenceDB(user_db_path)
+        # Lazy: MealRecommender only loads recipe embeddings when activated
+        self._meal_recommender = None
+        # Eaten-food identification mode:
+        #   "hybrid"    — score-fusion via pseudo-anchor (new default, Phase A)
+        #   "text_top1" — legacy text top-1 (kept as opt-in fallback)
+        # Override via EATEN_RETRIEVAL_MODE env var or constructor arg.
+        self._eaten_mode = eaten_retrieval_mode or os.environ.get(
+            "EATEN_RETRIEVAL_MODE", "hybrid"
+        )
+        # nutrition→Food recommendation mode (Phase C):
+        #   "v1" — legacy seed selection + neighbor expansion (current default)
+        #   "v2" — target-as-query hybrid (Phase C addition)
+        # Override via RECOMMEND_MODE env var.
+        self._recommend_mode = os.environ.get("RECOMMEND_MODE", "v1")
+        # Phase D meal-layer composition:
+        #   "off" — pipeline returns Phase C food-level recommendations only
+        #   "on"  — additionally retrieve top-K recipes from the recommended
+        #           foods + pantry and pass them to the LLM
+        # Default off — opt-in, preserves Phase C behavior.
+        self._meal_compose_mode = os.environ.get("MEAL_COMPOSE_MODE", "off")
+
+    def _get_meal_recommender(self):
+        """Lazy-init MealRecommender (avoids loading recipe embeddings unless used)."""
+        if self._meal_recommender is None:
+            from nutri_rag.assistant.meal_recommender import MealRecommender
+            self._meal_recommender = MealRecommender(db_path=self._db_path)
+        return self._meal_recommender
 
     @property
     def con(self) -> duckdb.DuckDBPyConnection:
@@ -43,12 +73,26 @@ class NutriAssistant:
         meal_description: str,
         meal_type: str = "breakfast",
     ) -> list[dict]:
-        """Parse and look up nutrients for foods the user has eaten."""
+        """Parse and look up nutrients for foods the user has eaten.
+
+        Retrieval mode is selected by self._eaten_mode (see __init__).
+        """
         items = parse_meal(meal_description)
         eaten = []
 
         for item in items:
-            df = search_food(self.con, item.food_term, k=1)
+            if self._eaten_mode == "text_top1":
+                # Legacy path — kept as opt-in fallback for A/B comparison.
+                df = search_food(self.con, item.food_term, k=1)
+            else:
+                # Default (hybrid via pseudo-anchor) — Phase A new behavior.
+                # Same code path as NutriBench v5 (scripts/run_bench.py --mode v5):
+                # v5 acc/MAE predicts this stage's quality, no separate robot
+                # regression test needed. See plans/vectorized-twirling-valley.md.
+                df = search_food_v2(
+                    item.food_term, mode="hybrid", k=1, alpha=0.5,
+                    db_path=self._db_path,
+                )
             if len(df) == 0:
                 continue
 
@@ -74,6 +118,7 @@ class NutriAssistant:
         eaten_meal_type: str = "breakfast",
         next_meal: str = "lunch",
         user_id: str = "default",
+        available_fdc_ids: set[int] | None = None,
     ) -> str:
         """Generate a personalized meal recommendation.
 
@@ -84,6 +129,9 @@ class NutriAssistant:
             eaten_meal_type: What meal the eaten food was for.
             next_meal: What meal to recommend.
             user_id: User ID for preference tracking.
+            available_fdc_ids: Optional hard availability filter applied to
+                both seeds and expanded neighbors. None = no filter (current
+                behavior). Phase B addition.
 
         Returns:
             Natural language meal recommendation string.
@@ -105,11 +153,20 @@ class NutriAssistant:
         targets = gap_result["targets"]
 
         # Step 4-5: DB nutrient query + GAT neighbor expansion
+        # Dispatch v1 (current) vs v2 (target-as-query hybrid) via env var.
         eaten_fdc_ids = {item["fdc_id"] for item in meal_history}
-        options = self._recommender.recommend(
-            targets=targets,
-            exclude_fdc_ids=eaten_fdc_ids,
-        )
+        if self._recommend_mode == "v2":
+            options = self._recommender.recommend_v2(
+                targets=targets,
+                exclude_fdc_ids=eaten_fdc_ids,
+                available_fdc_ids=available_fdc_ids,
+            )
+        else:
+            options = self._recommender.recommend(
+                targets=targets,
+                exclude_fdc_ids=eaten_fdc_ids,
+                available_fdc_ids=available_fdc_ids,
+            )
 
         if not options:
             return ("I found your nutritional gaps but couldn't find matching "
@@ -137,6 +194,32 @@ class NutriAssistant:
         # Step 7: Get preference summary for prompt context
         pref_summary = self._pref_db.get_preference_summary(user_id)
 
+        # Phase D: optional meal-layer composition.
+        # When MEAL_COMPOSE_MODE=on, retrieve concrete recipes from the
+        # recommended foods + pantry and include them in the LLM prompt.
+        # Uses the same hybrid_rank_recipes primitive that PFoodReq's
+        # --retrieval-style embedding_first mode exercises — so PFoodReq
+        # scores are a regression signal for this step.
+        meal_candidates = None
+        if self._meal_compose_mode == "on" and ranked_options:
+            try:
+                # Negative signal = user dislikes / allergies (NOT eaten foods —
+                # users can repeat what they ate). PreferenceDB exposes these
+                # as USDA-style descriptions; MealRecommender matches them by
+                # substring against recipe ingredient strings.
+                disliked = pref_summary.get("disliked", []) if pref_summary else None
+                meal_candidates = self._get_meal_recommender().recommend_meal(
+                    recommended_foods=ranked_options[:10],
+                    targets=targets,
+                    available_fdc_ids=available_fdc_ids,
+                    next_meal=next_meal,
+                    disliked_names=disliked,
+                )
+            except Exception as e:
+                # Graceful degradation: log and continue with food-only output
+                print(f"[pipeline] meal composition failed ({e}); falling back to food-level")
+                meal_candidates = None
+
         # Step 8: LLM Call 2 — Generate recommendation
         messages = format_recommendation_prompt(
             gap_reasoning=reasoning,
@@ -144,6 +227,7 @@ class NutriAssistant:
             options=ranked_options,
             next_meal=next_meal,
             preference_summary=pref_summary if pref_summary["favorites"] else None,
+            meal_candidates=meal_candidates,
         )
 
         recommendation = chat_completion(messages, max_tokens=1024)

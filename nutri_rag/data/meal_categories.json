@@ -1,0 +1,16 @@
+{
+  "_comment": "Hard filter for meal-shaped foods used by recommend_v2 in food_recommender.py. The schema:",
+  "_schema": {
+    "include_uncategorized": "bool — include foods with food_category_id IS NULL (most USDA foods, including Apples, raw)",
+    "allowed_category_ids": "list[int] — additional categories to allow; foods NOT in this set AND NOT uncategorized are excluded"
+  },
+  "_excluded_categories_rationale": {
+    "2":  "Salt — pure salt entries (not a meal)",
+    "4":  "Oils — pure cooking oils (ingredients, not meals)",
+    "5":  "Nutrient breakdowns of other foods (sub-entries, e.g. 'Total Fat, Ground turkey...')",
+    "13": "Nutrient breakdowns (e.g. 'Se -, B12 - Beef...')",
+    "20": "Flour — raw bulk ingredient"
+  },
+  "include_uncategorized": true,
+  "allowed_category_ids": [1, 6, 7, 9, 10, 11, 12, 14, 15, 16, 17, 18, 25]
+}

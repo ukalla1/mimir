@@ -89,6 +89,8 @@ def run_single(
     lam: float,
     max_tokens: int,
     ablation: str | None = None,
+    retrieval_style: str = "legacy",
+    constraints: str = "hard",
 ) -> dict:
     """Run pipeline for a single PFoodReq example.
 
@@ -104,16 +106,30 @@ def run_single(
     elif ablation == "gat_only":
         effective_lam = 1.0
 
-    # Retrieve candidates (Config C: tag → filter → GAT re-rank → top-k)
-    recipes = retriever.retrieve(
-        query_text=query_text,
-        tag_name=tag,
-        top_k=top_k,
-        lam=effective_lam,
-        positive_ingredients=example.get("positive_ingredients", []),
-        negative_ingredients=example.get("negative_ingredients", []),
-        nutrient_constraints=example.get("nutrient_constraints", []),
-    )
+    if retrieval_style == "embedding_first":
+        # Phase D testing path — shares hybrid_rank_recipes with the robot's
+        # meal layer. PFoodReq scores here are a regression signal for that.
+        recipes = retriever.retrieve_embedding_first(
+            query_text=query_text,
+            positive_ingredients=example.get("positive_ingredients", []),
+            negative_ingredients=example.get("negative_ingredients", []),
+            nutrient_constraints=example.get("nutrient_constraints", []),
+            tag_name=tag,
+            top_k=top_k,
+            lam=effective_lam,
+            constraints=constraints,
+        )
+    else:
+        # Legacy Config C: tag → filter → GAT re-rank → top-k
+        recipes = retriever.retrieve(
+            query_text=query_text,
+            tag_name=tag,
+            top_k=top_k,
+            lam=effective_lam,
+            positive_ingredients=example.get("positive_ingredients", []),
+            negative_ingredients=example.get("negative_ingredients", []),
+            nutrient_constraints=example.get("nutrient_constraints", []),
+        )
 
     if not recipes:
         return {
@@ -185,9 +201,38 @@ def main():
     parser.add_argument("--ablation", type=str, default="no_llm",
                         choices=["text_only", "gat_only", "no_llm", "with_llm"],
                         help="Ablation variant (default: no_llm)")
+    parser.add_argument("--scoring", type=str, default="hybrid",
+                        choices=["hybrid", "pool_centroid"],
+                        help=(
+                            "GAT scoring mode in RecipeVectorIndex.search_by_ids. "
+                            "'hybrid' (default, Phase D Gap 1) is query-conditioned "
+                            "via pseudo-anchor — same shape as NutriBench v5. "
+                            "'pool_centroid' is the historical baseline (cosine to "
+                            "pool centroid). Sets RECIPE_SCORE_MODE env var."
+                        ))
+    parser.add_argument("--retrieval-style", type=str, default="legacy",
+                        choices=["legacy", "embedding_first"],
+                        help=(
+                            "'legacy' = current PFoodReq pipeline (tag pre-filter → "
+                            "constraint pre-filter → score). 'embedding_first' uses "
+                            "the same hybrid_rank_recipes primitive the robot meal "
+                            "layer uses (Phase D); makes PFoodReq scores a regression "
+                            "signal for the deployed pipeline."
+                        ))
+    parser.add_argument("--constraints", type=str, default="hard",
+                        choices=["hard", "soft"],
+                        help=(
+                            "Only relevant when --retrieval-style=embedding_first. "
+                            "'hard' preserves PFoodReq task semantics (constraint "
+                            "violators removed). 'soft' makes constraints score "
+                            "penalties so we can measure retrieval-only quality."
+                        ))
     parser.add_argument("--output-dir", type=str, default="results",
                         help="Output directory for results")
     args = parser.parse_args()
+
+    # Set RECIPE_SCORE_MODE for RecipeVectorIndex.search_by_ids dispatch
+    os.environ["RECIPE_SCORE_MODE"] = args.scoring
 
     # Load data
     data_path = PFOODREQ_TEST_PATH if args.split == "test" else PFOODREQ_DEV_PATH
@@ -209,6 +254,9 @@ def main():
     print(f"  Text embeddings: {recipe_index.text_embeddings.shape}")
     print(f"  GAT embeddings: {'available' if has_gat else 'NOT available'}")
     print(f"  Lambda: {args.lam}, Top-k: {args.top_k}")
+    print(f"  GAT scoring mode: {args.scoring}")
+    print(f"  Retrieval style: {args.retrieval_style}"
+          f"{' (constraints=' + args.constraints + ')' if args.retrieval_style == 'embedding_first' else ''}")
     if args.ablation:
         print(f"  Ablation: {args.ablation}")
 
@@ -227,6 +275,8 @@ def main():
             lam=args.lam,
             max_tokens=args.max_tokens,
             ablation=args.ablation,
+            retrieval_style=args.retrieval_style,
+            constraints=args.constraints,
         )
         all_results.append(result)
 

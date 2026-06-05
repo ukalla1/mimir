@@ -1,0 +1,7 @@
+{
+  "detected_chicken_0": {"px": 1.0, "py": 0.0},
+  "detected_rice_1": {"px": 2.0, "py": 1.0},
+  "detected_spinach_2": {"px": 3.0, "py": 0.5},
+  "detected_apple_3": {"px": 4.0, "py": 0.0},
+  "detected_chair_4": {"px": 5.0, "py": 0.0}
+}

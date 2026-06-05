@@ -79,11 +79,13 @@ Four retrieval versions for ablation:
 | V1 | Dense | Qwen3-Embedding semantic search |
 | V2 | Dense + GAT | V1 + GAT re-ranking when text is ambiguous |
 | V3 | Multi-candidate | Top-5 candidates per food, filtered by similarity threshold (0.60) |
+| V4 | Pure GAT | Query-conditioned GAT via text-bootstrapped pseudo-anchor |
+| V5 | Score-fusion hybrid | α·cos(q_gat*, x_gat) + (1-α)·cos(q_text, x_text) — the same code path used by the robot assistant's eaten-side identification |
 
-Three modes:
-- **NutriBench Benchmark**: Evaluate carb/protein/fat/energy estimation accuracy using lm-evaluation-harness
-- **General Assistant**: Interactive meal recommendations with GAT neighbor expansion, gap analysis, and user preference learning
-- **PFoodReq Benchmark**: Personalized food recommendation using deterministic constraint filtering + GAT re-ranking
+Three application modes (see [RAG Pipeline Stages](#rag-pipeline-stages) for the per-stage RAG flow that ties these together):
+- **NutriBench Benchmark**: Evaluate carb/protein/fat/energy estimation accuracy (exercises Stage 1)
+- **General Assistant**: Interactive meal recommendations spanning Stages 2–4 (gap analysis → gap-filling foods → recipe-layer meal composition)
+- **PFoodReq Benchmark**: Personalized recipe recommendation (exercises Stage 4, shares the recipe retrieval primitive with the robot's meal layer)
 
 ### [nutri-atlas](nutri-atlas/) — Robot Integration (Operator Side)
 
@@ -125,6 +127,206 @@ Original dataset and BAMnet baseline from WSDM 2021. Contains test/dev/train spl
 ### [foodkg.github.io](foodkg.github.io/) — FoodKG Construction (External)
 
 External research project for building the FoodKG knowledge graph from USDA + Recipe1M data. Mimir uses its `recipe_kg.json` output as input for `nutri_graph/scripts/build_recipe_kb.py`. Not needed for normal operation — only required if rebuilding the recipe knowledge graph from scratch.
+
+## RAG Pipeline Stages
+
+The system decomposes nutritional intelligence into four sub-problems, each handled by the same unified retrieval primitive (`hybrid_rank` for foods, `hybrid_rank_recipes` for recipes) — score-fusion hybrid `α·cos_gat + (1-α)·cos_text` over a candidate pool. Each stage's robot-pipeline implementation has a corresponding benchmark that exercises the same code path, so a regression in the retrieval primitive shows up in both places.
+
+### Stage 1 — Food → nutrition
+
+Identify the USDA food entry for a free-text food term (e.g. `"126g of maize flour"` → `"Corn flour, yellow, masa, enriched"`) and fetch its per-100g nutrient profile.
+
+**RAG flow:**
+
+```
+INPUT:  free-text food term
+
+  ↓ Step 1 — Encode
+       q_text = TextEmbedder.encode([term], task="food-search")   # (1024,)
+
+  ↓ Step 2 — Pseudo-anchor for graph space (query is text, not a graph node)
+       seed   = argmax_x cos(q_text, x_text)        # text top-1
+       q_gat* = GATIndex[seed.arr_idx]              # (64,)
+
+  ↓ Step 3 — Score over ~9,991 USDA foods
+       s(x) = α·cos(q_gat*, x_gat) + (1-α)·cos(q_text, x_text)
+       α = 0.5 default
+
+  ↓ Step 4 — DuckDB lookup
+       For top-K, fetch per-100g nutrients via edges_food_contains_nutrient
+
+OUTPUT: top-K fdc_ids + nutrient profiles → LLM context block
+```
+
+**Indices used:** `food_text_embeddings.npy` (9991 × 1024) + `food_embeddings.npy` (9991 × 64), aligned by `arr_idx`.
+
+| | |
+|---|---|
+| **Pipeline** | `pipeline.py:_lookup_eaten_foods` → `search_food_v2(mode="hybrid")` (default after Phase A) |
+| **Test** | NutriBench v5 → `BenchRetriever(mode="hybrid")` → `search_food_v2(mode="hybrid")` |
+| **Alignment** | ✓ Same function call — v5 acc/MAE is a direct regression signal for robot eaten-side quality |
+| **Measurements** | Not yet at scale; requires LLM server |
+
+### Stage 2 — nutrition → Food
+
+Given a structured nutritional target (the gap analyzer's output), retrieve foods that fill the gap. The query is the target itself — not the eaten food.
+
+**RAG flow:**
+
+```
+INPUT:  structured target {protein_g: 30, fat_g: 20, carb_g: 60, kcal: 500}
+
+  ↓ Step 1 — Encode target into two spaces
+       prose  = "A balanced meal with ~30g protein, 20g fat, 60g carb, 500 kcal"
+       q_text = TextEmbedder.encode([prose])
+
+       q_gat = normalize(  w_protein · GAT[Protein_node]
+                         + w_fat     · GAT[Fat_node]
+                         + w_carb    · GAT[Carb_node])
+       # Weights = target macro magnitudes (normalized)
+       # Nutrient node GAT from node_embeddings.npy[NUM_FOODS + nutrient_idx]
+
+  ↓ Step 2 — Candidate pool via SQL meal-category filter
+       pool = SELECT fdc_id FROM nodes_food
+              WHERE food_category_id IN meal_categories
+                OR food_category_id IS NULL    # 78% of USDA foods are uncategorized
+
+  ↓ Step 3 — Hybrid score with structured term
+       s(x) = α·cos(q_gat, x_gat) + (1-α)·cos(q_text, x_text)
+            + γ·macro_match(target, x.nutrients)
+       α = 0.5, γ = 0.5
+
+OUTPUT: list[FoodOption] → Stage 4 input OR directly to LLM
+```
+
+**Indices used:** food text + food GAT + **nutrient node GAT** (rows `[NUM_FOODS : NUM_FOODS+NUM_NUTRIENTS]` of `node_embeddings.npy`).
+
+**Why hybrid works here:** both query vectors exist because nutrient nodes ARE graph nodes — the HealthyFoodSubs precondition is satisfied without needing a pseudo-anchor.
+
+| | |
+|---|---|
+| **Pipeline** | `recommend_v2` (opt-in via `RECOMMEND_MODE=v2`) |
+| **Test** | None |
+| **Alignment** | Shares `hybrid_rank` primitive with Stage 1's NutriBench v5 (transitively tested) |
+| **Measurements** | Smoke only — `recommend_v2` returns meal-shaped foods (Milk, Yogurt, Soup) vs legacy v1's anomalies (Sweeteners, Sugars) |
+
+### Stage 3 — Food → Similar food (substitute / graph neighbor)
+
+Given a known food (graph node), retrieve nutritionally similar foods. The cleanest case for score fusion — both query vectors exist trivially.
+
+**RAG flow:**
+
+```
+INPUT:  seed food (fdc_id, already a known graph node)
+
+  ↓ Step 1 — Lookup (no encoding needed)
+       arr_idx = food_id_to_idx[seed.fdc_id]
+       q_text  = TextIndex.embeddings[arr_idx]      # (1024,)
+       q_gat   = GATIndex.embeddings[arr_idx]       # (64,)
+
+  ↓ Step 2 — Score over all candidates
+       s(x) = α·cos(q_gat, x_gat) + (1-α)·cos(q_text, x_text)
+       α = 0.5 default (matches HealthyFoodSubs paper formula)
+
+       Optional structured filter:
+         - HealthyFoodSubs: same food category as seed
+         - Robot:           availability filter
+
+  ↓ Step 3 — Top-K, exclude self
+
+OUTPUT: list[(fdc_id, score)]
+```
+
+| | |
+|---|---|
+| **Pipeline** | `food_recommender._hybrid_neighbors` (opt-in via `FOOD_NEIGHBOR_MODE=hybrid`) |
+| **Test** | HealthyFoodSubs `evaluate_hybrid` ([eval_food_subs.py:176-226](nutri_graph/scripts/eval_food_subs.py#L176-L226)) |
+| **Alignment** | ✓ Same scoring shape (α-blended hybrid) |
+| **Measurements** | None at scale; HFS benchmark exists, just not yet run |
+
+### Stage 4 — Meal composition (recipe layer)
+
+Given recommended foods + user context (dislikes, pantry, macros), retrieve concrete meal recipes from the FoodKG corpus.
+
+**RAG flow:**
+
+```
+INPUT:  recommended foods (Stage 2 output) + targets + dislikes
+        + available_fdc_ids + next_meal
+
+  ↓ Step 1 — Build query vectors
+       prose  = f"A balanced {next_meal} featuring {top foods}, ~30g protein..."
+       q_text = TextEmbedder.encode([prose])         # (1024,) recipe-text space
+
+       q_gat  = normalize(mean(GAT_food[recommended_fdc_ids]))    # (64,)
+       # ↑ Lives in the SAME joint node-embedding space as recipe-GAT,
+       #   since both come from one jointly trained graph model
+
+  ↓ Step 2 — Candidate pool via tag pre-filter (hard)
+       tag  = next_meal_to_tag[next_meal]   # lunch→lunch, dinner→dinner-party
+       pool = SELECT recipe_id FROM edges_recipe_has_tag WHERE tag IN (...)
+       # ~200 recipes per meal type
+
+  ↓ Step 3 — Hybrid score within pool
+       s(r) = α·cos(q_gat, RECIPE_GAT[r]) + (1-α)·cos(q_text, RECIPE_TEXT[r])
+
+  ↓ Step 4 — SQL post-fetch context (ingredient fdc_ids, per-recipe nutrients)
+
+  ↓ Step 5 — Hard filter cascade (Phase E)
+       Tier 1 (strict):    tag + no_disliked + overlap≥1 + macros±50%
+       Tier 2 → drop macros ; Tier 3 → loosen overlap ;
+       Tier 4 → drop overlap ; Tier 5 → drop disliked (last resort)
+
+  ↓ Step 6 — Soft re-rank
+       final(r) = s(r) + γ·overlap_ratio − β·missing/max_missing
+       γ = 0.5, β = 0.3
+
+OUTPUT: list[MealOption] → "Suggested Meals" block in LLM prompt
+```
+
+**Indices used:** `recipe_text_embeddings.npy` (82238 × 1024) + recipe-GAT slice of `node_embeddings.npy` (82238 × 64).
+
+**Why hybrid works here:** food GAT and recipe GAT share the joint training space, so `cos(food_gat, recipe_gat)` is meaningful — recipes that USE a food cluster near it in graph space. No SQL ingredient-string resolution required.
+
+| | |
+|---|---|
+| **Pipeline** | `meal_recommender.recommend_meal` (opt-in via `MEAL_COMPOSE_MODE=on`) |
+| **Test** | PFoodReq `--retrieval-style embedding_first --constraints hard` |
+| **Alignment** | ✓ Shared `hybrid_rank_recipes` primitive |
+| **Measurements** | **MAP 78.5% / MAR 83.0% / F1 77.5%** on full 2244 — beats the WSDM 2021 paper's pFoodReQ (F1 63.7%) by 14 points |
+
+### Unified retrieval primitive
+
+All four stages call the same retrieval shape — different stores, same algorithm:
+
+| Stage | Primitive | Embedding store | q_text source | q_gat source |
+|---|---|---|---|---|
+| 1 Food → nutrition | `search_food_v2` → `hybrid_rank` | Food (9,991) | `embed(free text)` | `GAT[text top-1]` (pseudo-anchor) |
+| 2 nutrition → Food | `recommend_v2` → `hybrid_rank` | Food (9,991) | `embed(target prose)` | weighted nutrient-node blend |
+| 3 Food → Similar food | `_hybrid_neighbors` → `hybrid_rank` | Food (9,991) | `text[seed]` (lookup) | `GAT[seed]` (lookup) |
+| 4 Meal composition | `recommend_meal` → `hybrid_rank_recipes` | Recipe (82,238) | `embed(target meal prose)` | `mean(GAT_food[recommended])` |
+
+The unifying principle: **always compute both `q_text` and `q_gat`**, even when one has to be bootstrapped (Stage 1's pseudo-anchor) or synthesized (Stage 2's nutrient blend, Stage 4's food-mean). Once both vectors exist, score fusion `α·cos_gat + (1-α)·cos_text` applies uniformly.
+
+### Test ↔ pipeline status
+
+| Stage | Test | Run at scale? | Headline number |
+|---|---|---|---|
+| 1 Food → nutrition | NutriBench v4/v5 | ✗ | — |
+| 2 nutrition → Food | none | n/a | smoke only |
+| 3 Food → Similar food | HealthyFoodSubs `eval_food_subs.py` | ✗ | — |
+| 4 Meal composition | PFoodReq `embedding_first + hard` | ✓ full 2244 | **F1 77.5%** (beats paper by 14 pts) |
+
+### Toggle reference (env vars)
+
+| Stage | Env var | Default | Opt-in |
+|---|---|---|---|
+| 1 Eaten-side ID | `EATEN_RETRIEVAL_MODE` | `hybrid` (Phase A) | `text_top1` (legacy) |
+| 2 nutrition → Food | `RECOMMEND_MODE` | `v1` (legacy) | `v2` (target-as-query, Phase C) |
+| 3 Food → Similar food | `FOOD_NEIGHBOR_MODE` | `gat_only` (legacy) | `hybrid` (Phase B) |
+| 4 Recipe scoring | `RECIPE_SCORE_MODE` | `hybrid` (Phase D) | `pool_centroid` (legacy) |
+| 4 Meal layer | `MEAL_COMPOSE_MODE` | `off` | `on` (Phase D + E) |
+| Pantry availability | `AVAILABILITY_SOURCE` | `none` | `json`, `zmq` |
 
 ## Results
 
@@ -478,19 +680,19 @@ bash scripts/start_server.sh
 
 # Terminal 2 — robot assistant (YOLO detector, default)
 cd ~/work/atlas/mimir/nutri-atlas/robot_control
-python robot_assistant.py --robot-ip 192.168.0.114 --detection-mode real
+python robot_assistant.py --robot-ip 192.168.0.164 --detection-mode real
 
 # Terminal 2 — robot assistant (VLM detector — open-vocab, uses LLM vision)
-python robot_assistant.py --robot-ip 192.168.0.114 --detection-mode real --detector vlm
+python robot_assistant.py --robot-ip 192.168.0.164 --detection-mode real --detector vlm
 
 # Terminal 3a — manual detector: press Enter to push current frame to robot
 cd ~/work/atlas/mimir/nutri-atlas/robot_control/tools
-python detector_node_real_world.py --robot-ip 192.168.0.114
+python detector_node_real_world.py --robot-ip 192.168.0.164
 
 # Terminal 3b — auto detector (alternative to 3a): sends detections automatically
-python detector_node_real_world_auto.py --robot-ip 192.168.0.114
+python detector_node_real_world_auto.py --robot-ip 192.168.0.164
 # Filter by label and confidence:
-python detector_node_real_world_auto.py --robot-ip 192.168.0.114 \
+python detector_node_real_world_auto.py --robot-ip 192.168.0.164 \
     --targets person chair --stable-conf 0.6 --stable-frames 10
 
 # --- Simulation ---
@@ -513,7 +715,8 @@ python robot_assistant.py --robot-ip 127.0.0.1
 ### Network Checklist
 
 - Both machines on the same subnet (e.g. `192.168.0.x`).
-- Verify connectivity: `ping <robot_ip>` from operator PC.
+- **Get the robot's current Wi-Fi IP** by running `hostname -I` on the robot itself — DHCP leases can change between reboots, so don't assume the example IP above is still valid. The robot typically reports three addresses: the Unitree internal `192.168.123.x` (do NOT use), the Wi-Fi `192.168.0.x` (use this one), and a Docker bridge `172.17.x.x` (ignore).
+- Verify connectivity from the operator PC: `ping <robot_ip>` must succeed before launching `robot_assistant.py`, otherwise every ZMQ call will time out after 10s with "No reply from robot".
 - Firewall allows inbound TCP `5555` on robot (real world); also `5556` for simulation.
 - LLM server runs on `localhost:8080` on the operator PC only.
 

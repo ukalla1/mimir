@@ -15,8 +15,15 @@ def format_recommendation_prompt(
     options: list[FoodOption],
     next_meal: str = "lunch",
     preference_summary: dict | None = None,
+    meal_candidates: list | None = None,
 ) -> list[dict[str, str]]:
     """Build chat messages for LLM Call 2 (recommendation generation).
+
+    Args:
+        meal_candidates: optional list of MealOption (Phase D). When present,
+            the prompt includes a "Suggested Meals" section so the LLM can
+            anchor its answer on a concrete recipe instead of composing one
+            from foods on the fly.
 
     Returns a list of message dicts ready for the chat completion API.
     """
@@ -83,6 +90,35 @@ def format_recommendation_prompt(
             sections.append(f"User tends to skip: {', '.join(disliked[:5])}")
         sections.append("")
 
+    # Meal candidates section (Phase D — only when meal-layer composition is on)
+    if meal_candidates:
+        sections.append("=== Suggested Meals (retrieved recipes ranked by fit) ===")
+        for i, meal in enumerate(meal_candidates[:5], 1):
+            ing_preview = ", ".join(meal.ingredients[:8])
+            if len(meal.ingredients) > 8:
+                ing_preview += f", … (+{len(meal.ingredients) - 8} more)"
+            overlap_tag = (
+                f"uses {meal.overlap_count}/{max(meal.overlap_count, 1)} of your gap-filling foods"
+                if meal.overlap_count > 0 else "no direct overlap with gap-filling foods"
+            )
+            missing_tag = (
+                f"; {meal.missing_count} ingredient(s) not in pantry"
+                if meal.missing_count > 0 else ""
+            )
+            sections.append(
+                f'  [{i}] "{meal.recipe_name}" (score={meal.final_score:.3f})'
+            )
+            sections.append(f'      Ingredients: {ing_preview}')
+            sections.append(
+                f"      Per-recipe nutrients: "
+                f"{meal.nutrients.get('calories', 0):.0f} kcal, "
+                f"{meal.nutrients.get('protein', 0):.1f}g protein, "
+                f"{meal.nutrients.get('fat', 0):.1f}g fat, "
+                f"{meal.nutrients.get('carbohydrates', 0):.1f}g carb"
+            )
+            sections.append(f"      Notes: {overlap_tag}{missing_tag}")
+        sections.append("")
+
     context = "\n".join(sections)
 
     system_msg = (
@@ -91,6 +127,13 @@ def format_recommendation_prompt(
         "Provide a specific, practical suggestion with approximate portions. "
         "Consider the user's preferences when available."
     )
+    if meal_candidates:
+        system_msg += (
+            " If 'Suggested Meals' are listed, prefer picking the best one "
+            "from that list (by your judgment, balancing fit and missing "
+            "ingredients) and explain briefly. Do not invent recipes that "
+            "are not in the suggested list when one fits well."
+        )
 
     user_msg = (
         f"{context}\n"

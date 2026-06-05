@@ -13,7 +13,7 @@ from dataclasses import dataclass, field
 import duckdb
 
 from nutri_rag.config import DB_PATH, TOP_K_FOODS
-from nutri_rag.search import search_food, get_nutrients
+from nutri_rag.search import search_food, search_food_v2, get_nutrients
 
 
 @dataclass
@@ -113,18 +113,44 @@ class BenchRetriever:
     then searches the USDA database for matching nutrient profiles.
 
     Args:
-        use_gat: If True, apply GAT nutritional-similarity re-ranking (V2).
+        mode: retrieval mode.
+            "text"       — text cosine search only (V1 equivalent).
+            "gat_expand" — text top-K + GAT-neighbor expansion, text re-rank (V2/V3 legacy).
+            "gat_pure"   — pure GAT via text-bootstrapped pseudo-anchor (V4 new).
+            "hybrid"     — score-fusion hybrid via pseudo-anchor (V5 new).
+        alpha: GAT weight in [0, 1] for "hybrid" mode (ignored otherwise).
+        use_gat: deprecated. True ↔ mode="gat_expand"; False ↔ mode="text". Kept
+                 for back-compat with existing task utils. Ignored if `mode`
+                 is set explicitly.
 
     Usage::
 
-        retriever = BenchRetriever()              # V1: text embedding only
-        retriever = BenchRetriever(use_gat=True)   # V2: text + GAT re-ranking
+        retriever = BenchRetriever()                      # V1: text only
+        retriever = BenchRetriever(mode="gat_expand")     # V2/V3 legacy expansion
+        retriever = BenchRetriever(mode="gat_pure")       # V4: pure GAT (new)
+        retriever = BenchRetriever(mode="hybrid", alpha=0.5)  # V5: hybrid (new)
         contexts = retriever.retrieve("126g of maize flour and 27g of raw sugar")
     """
 
-    def __init__(self, db_path: str = DB_PATH, use_gat: bool = False):
+    def __init__(
+        self,
+        db_path: str = DB_PATH,
+        use_gat: bool | None = None,
+        mode: str | None = None,
+        alpha: float = 0.5,
+    ):
         self._db_path = db_path
-        self._use_gat = use_gat
+        self._alpha = float(alpha)
+        if mode is not None:
+            self._mode = mode
+        elif use_gat is True:
+            self._mode = "gat_expand"
+        else:
+            self._mode = "text"
+        if self._mode not in {"text", "gat_expand", "gat_pure", "hybrid"}:
+            raise ValueError(f"unknown BenchRetriever mode: {self._mode!r}")
+        # Back-compat field referenced by some legacy code paths
+        self._use_gat = self._mode == "gat_expand"
 
     def retrieve(
         self, meal_description: str, top_k: int = 1,
@@ -142,9 +168,19 @@ class BenchRetriever:
         for term in food_terms:
             ctx = FoodContext(food_term=term)
 
-            df = search_food(
-                None, term, k=top_k, db_path=self._db_path, use_gat=self._use_gat,
-            )
+            if self._mode in {"gat_pure", "hybrid"}:
+                # New score-fusion path (pseudo-anchor inside search_food_v2)
+                v2_mode = "gat" if self._mode == "gat_pure" else "hybrid"
+                df = search_food_v2(
+                    term, mode=v2_mode, k=top_k, alpha=self._alpha,
+                    db_path=self._db_path,
+                )
+            else:
+                # Legacy paths: text-only or text+GAT-expansion
+                df = search_food(
+                    None, term, k=top_k, db_path=self._db_path,
+                    use_gat=(self._mode == "gat_expand"),
+                )
 
             if len(df) > 0:
                 # Primary match (first row) for backward compatibility
