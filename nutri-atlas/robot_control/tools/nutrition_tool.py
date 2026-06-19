@@ -68,6 +68,25 @@ class GetMealRecommendation(BaseTool):
             'description': 'Which meal to recommend for: "breakfast", "lunch", "dinner", or "snack". Default: "lunch".',
             'required': False,
         },
+        {
+            'name': 'disliked_ingredients',
+            'type': 'array',
+            'description': (
+                'Ingredients the user said they dislike or are allergic to, '
+                'e.g. ["peanuts", "shellfish", "cilantro"]. Extract from the user '
+                'message — only include what they actually stated. Omit if none mentioned.'
+            ),
+            'required': False,
+        },
+        {
+            'name': 'health_condition',
+            'type': 'string',
+            'description': (
+                'Chronic condition stated by the user that should shape macro targets: '
+                '"diabetes" | "hypertension" | "obesity". Omit if not stated.'
+            ),
+            'required': False,
+        },
     ]
 
     def call(self, params: str, **kwargs) -> str:
@@ -75,11 +94,16 @@ class GetMealRecommendation(BaseTool):
         eaten_foods = args.get('eaten_foods', '')
         eaten_meal_type = args.get('eaten_meal_type', 'breakfast')
         next_meal = args.get('next_meal', 'lunch')
+        disliked = args.get('disliked_ingredients') or []
+        health_condition = args.get('health_condition') or None
 
         if not eaten_foods.strip():
             return json.dumps({'status': 'error', 'message': 'Please describe what you have eaten.'})
 
-        print(f'[nutrition] eaten="{eaten_foods}", meal_type={eaten_meal_type}, next={next_meal}')
+        print(
+            f'[nutrition] eaten="{eaten_foods}", meal_type={eaten_meal_type}, '
+            f'next={next_meal}, disliked={disliked}, condition={health_condition}'
+        )
 
         # Pull availability filter from env-configured source (none|json|zmq).
         # Default "none" preserves the current behavior with no filter.
@@ -96,6 +120,8 @@ class GetMealRecommendation(BaseTool):
                 eaten_meal_type=eaten_meal_type,
                 next_meal=next_meal,
                 available_fdc_ids=available_fdc_ids,
+                health_condition=health_condition,
+                constraints={'disliked_ingredients': disliked} if disliked else None,
             )
             return json.dumps({
                 'status': 'ok',
