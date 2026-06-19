@@ -1,0 +1,9 @@
+TASK: Move a cup with a stirring tool in it to the sink.
+common_sense/episode_36
+
+step01: find a Cup
+step02: find a Spoon
+step03: pick up the Cup
+step04: pick up the Spoon
+step05: find a Sink
+step06: put down the object in hand

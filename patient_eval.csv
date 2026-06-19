@@ -1,0 +1,11 @@
+Patient,Profile,Constraints,Target_Diet,Recommended_Meal,Calories,Protein_g,Carb_g,Fat_g,Allergen_Safe,Adheres
+P0440,"68F, BMI 29.6, None (Moderate)",Low-Sugar · None,Balanced,Rice and Tomato Pie,353,12,37,19,True,True
+P0622,"78M, BMI 18.4, Diabetes (Moderate)",Low-Sugar · Peanuts,Low-Carb,Pepperoni Pizza Wraps,318,15,18,18,True,True
+P0161,"65M, BMI 35.7, None (Moderate)",None · Gluten,Balanced,Creamy Lime Sherbet (Or Orange if You Prefer!),619,23,33,42,True,True
+P0550,"79M, BMI 17.7, Obesity (Mild)",Low-Sodium · None,Balanced,Meatball Sandwiches,305,15,23,16,True,True
+P0238,"50M, BMI 18.6, Hypertension (Mild)",None · None,Low-Sodium,Caldo Verde,407,14,50,15,True,True
+P0390,"28F, BMI 33.0, Obesity (Mild)",Low-Sugar · None,Balanced,Bacon Avocado Quesadillas,662,41,6,50,True,False
+P0659,"40M, BMI 15.4, Hypertension (Severe)",Low-Sugar · None,Low-Sodium,Rice and Tomato Pie,353,12,37,19,True,True
+P0508,"34F, BMI 42.5, Hypertension (Moderate)",None · Gluten,Low-Sodium,Creamy Lime Sherbet (Or Orange if You Prefer!),619,23,33,42,True,True
+P0125,"77F, BMI 39.6, Obesity (Severe)",None · None,Balanced,Spicy Smoky Joes,383,26,26,17,True,True
+P0291,"49M, BMI 22.1, None (Severe)",Low-Sugar · Peanuts,Balanced,Caldo Verde,407,14,50,15,True,True

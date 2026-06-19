@@ -1,0 +1,24 @@
+TASK: Pick up knife, slice apple, put knife in bowl, heat slice of apple in microwave, put apple slice on table.
+long_horizon/episode_10 success=1.0 steps=21
+
+step01: find a DiningTable             -> step01_find_a_DiningTable.png
+step02: find a Knife                   -> step02_find_a_Knife.png
+step03: pick up the Knife              -> step03_pick_up_the_Knife.png
+step04: find a Apple                   -> step04_find_a_Apple.png
+step05: slice the Apple                -> step05_slice_the_Apple.png
+step06: find a Bowl                    -> step06_find_a_Bowl.png
+step07: put down the object in hand    -> step07_put_down_the_object_in_hand.png
+step08: find a Apple                   -> step08_find_a_Apple.png
+step09: pick up the Apple              -> step09_pick_up_the_Apple.png
+step10: find a Microwave               -> step10_find_a_Microwave.png
+step11: open the Microwave             -> step11_open_the_Microwave.png
+step12: put down the object in hand    -> step12_put_down_the_object_in_hand.png
+step13: close the Microwave            -> step13_close_the_Microwave.png
+step14: turn on the Microwave          -> step14_turn_on_the_Microwave.png
+step15: turn off the Microwave         -> step15_turn_off_the_Microwave.png
+step16: open the Microwave             -> step16_open_the_Microwave.png
+step17: find a Apple                   -> step17_find_a_Apple.png
+step18: pick up the Apple              -> step18_pick_up_the_Apple.png
+step19: close the Microwave            -> step19_close_the_Microwave.png
+step20: find a DiningTable             -> step20_find_a_DiningTable.png
+step21: put down the object in hand    -> step21_put_down_the_object_in_hand.png

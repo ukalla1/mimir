@@ -1,0 +1,17 @@
+TASK: Put a clean plate on the counter.
+subtask=base episode=episode_22 success=1.0 steps=14
+
+step01: find a Plate                     -> step01_find_a_Plate.png
+step02: pick up the Plate                -> step02_pick_up_the_Plate.png
+step03: find a CounterTop                -> step03_find_a_CounterTop.png
+step04: put down the object in hand      -> step04_put_down_the_object_in_hand.png
+step05: find a Plate                     -> step05_find_a_Plate.png
+step06: pick up the Plate                -> step06_pick_up_the_Plate.png
+step07: find a Sink                      -> step07_find_a_Sink.png
+step08: put down the object in hand      -> step08_put_down_the_object_in_hand.png
+step09: find a Faucet                    -> step09_find_a_Faucet.png
+step10: turn on the Faucet               -> step10_turn_on_the_Faucet.png
+step11: turn off the Faucet              -> step11_turn_off_the_Faucet.png
+step12: pick up the Plate                -> step12_pick_up_the_Plate.png
+step13: find a CounterTop                -> step13_find_a_CounterTop.png
+step14: put down the object in hand      -> step14_put_down_the_object_in_hand.png
