@@ -65,7 +65,6 @@ import time
 
 import zmq
 import rclpy
-from action_msgs.msg import GoalStatus
 from rclpy.node import Node
 from rclpy.duration import Duration
 from rclpy.action import ActionClient
@@ -105,11 +104,14 @@ _SPIN_TIMEOUT = 30.0   # seconds
 _MOVE_TIMEOUT = 30.0   # seconds
 _NAV_TIMEOUT = 120.0   # seconds
 
-# Post-nav arrival check: Nav2 sometimes returns STATUS_SUCCEEDED when the
-# robot is already within xy_goal_tolerance of the goal without actually moving
-# (common for detected-object positions computed near the current pose).
-# Verify map->base distance after success; flip to 'failed' if too far.
-_ARRIVAL_THRESHOLD_M = 0.5
+# Arrival tracking — source of truth is the robot's actual map->base pose,
+# not Nav2's BT result. Nav2 in this stack is unreliable (BT SIGSEGVs, false
+# successes from stale localization, aborts while the controller tail keeps
+# the robot moving). Polling TF survives all three.
+_ARRIVAL_THRESHOLD_M = 0.5     # success when within this distance
+_NAV_POLL_S          = 0.3     # TF poll period during navigation
+_NAV_STALL_S         = 15.0    # max seconds with no measurable progress
+_NAV_STALL_PROG_M    = 0.05    # min distance closed to count as progress
 
 # cmd_vel publish rate during spin/move
 _CTRL_HZ = 20.0
@@ -178,6 +180,10 @@ class ZMQBridgeNode(Node):
         self._nav_target_desc   = ''     # human-readable target description
         self._nav_target_x      = 0.0    # map x of the active goal (for arrival check)
         self._nav_target_y      = 0.0    # map y of the active goal (for arrival check)
+        # Poll-based arrival tracking (used by both sync and async nav paths)
+        self._nav_t_start       = 0.0
+        self._nav_last_dist     = float('inf')
+        self._nav_last_prog_t   = 0.0
         self._nav_lock          = threading.Lock()
 
         # --- ZMQ REP socket ---
@@ -304,6 +310,60 @@ class ZMQBridgeNode(Node):
         dist = math.hypot(px - tx, py - ty)
         return dist <= _ARRIVAL_THRESHOLD_M, dist
 
+    def _cancel_goal_safely(self, goal_handle) -> None:
+        """Best-effort cancel of a Nav2 goal handle. Tolerates crashed Nav2."""
+        if goal_handle is None:
+            return
+        try:
+            goal_handle.cancel_goal_async()
+        except Exception:
+            pass
+
+    def _poll_until_arrived(self, goal_handle, x: float, y: float,
+                            target: str, goal_id: str) -> dict:
+        """Poll TF until the robot reaches (x, y) or stalls.
+
+        Outcomes:
+          success — robot pose within _ARRIVAL_THRESHOLD_M of (x, y)
+          failed  — no measurable progress for _NAV_STALL_S
+        """
+        last_prog_t = time.time()
+        pose0 = self._get_pose_full()
+        last_dist = math.hypot(pose0[0] - x, pose0[1] - y) if pose0 else float('inf')
+
+        while rclpy.ok():
+            time.sleep(_NAV_POLL_S)
+            pose = self._get_pose_full()
+            if pose is None:
+                continue  # TF temporarily unavailable — wait, don't reset
+            dist = math.hypot(pose[0] - x, pose[1] - y)
+            if dist <= _ARRIVAL_THRESHOLD_M:
+                self._cancel_goal_safely(goal_handle)
+                return {
+                    'goal_id': goal_id,
+                    'status': 'success',
+                    'message': f'Arrived at {target} (x={x:.2f}, y={y:.2f}, dist={dist:.2f} m)',
+                }
+            if (last_dist - dist) >= _NAV_STALL_PROG_M:
+                last_prog_t = time.time()
+                last_dist = dist
+            if (time.time() - last_prog_t) >= _NAV_STALL_S:
+                self._cancel_goal_safely(goal_handle)
+                return {
+                    'goal_id': goal_id,
+                    'status': 'failed',
+                    'message': (f'No progress toward {target} for {_NAV_STALL_S:.0f}s '
+                                f'(last dist={dist:.2f} m)'),
+                }
+
+        # rclpy shutting down
+        self._cancel_goal_safely(goal_handle)
+        return {
+            'goal_id': goal_id,
+            'status': 'failed',
+            'message': f'Navigation to {target} interrupted by ROS shutdown',
+        }
+
     def _handle_navigate(self, goal_id: str, x: float, y: float, landmark: str) -> dict:
         target = landmark if landmark else f'({x:.2f}, {y:.2f})'
         if not self._nav_client.wait_for_server(timeout_sec=2.0):
@@ -340,52 +400,12 @@ class ZMQBridgeNode(Node):
                 'message': f'Navigate goal rejected by Nav2 for {target}',
             }
 
-        result_future = goal_handle.get_result_async()
-        result_msg, err = self._wait_future(result_future, _NAV_TIMEOUT)
-        if err is not None:
-            goal_handle.cancel_goal_async()
-            return {
-                'goal_id': goal_id,
-                'status': 'timeout',
-                'message': f'Navigate result timed out after {_NAV_TIMEOUT}s',
-            }
-
-        status = result_msg.status
-        if status == GoalStatus.STATUS_SUCCEEDED:
-            arrived, dist = self._verify_arrival(x, y)
-            if not arrived:
-                self.get_logger().warn(
-                    f'[{goal_id[:8]}] Nav2 SUCCEEDED but robot is {dist:.2f} m '
-                    f'from {target} (threshold {_ARRIVAL_THRESHOLD_M} m)')
-                return {
-                    'goal_id': goal_id,
-                    'status': 'failed',
-                    'message': (f'Nav2 reported success but robot is {dist:.2f} m '
-                                f'from {target} — likely within goal tolerance of current pose '
-                                f'or stale localization. Not actually arrived.'),
-                }
-            return {
-                'goal_id': goal_id,
-                'status': 'success',
-                'message': f'Arrived at {target} (x={x:.2f}, y={y:.2f}, dist={dist:.2f} m)',
-            }
-        if status == GoalStatus.STATUS_CANCELED:
-            return {
-                'goal_id': goal_id,
-                'status': 'failed',
-                'message': f'Navigation canceled before reaching {target}',
-            }
-        if status == GoalStatus.STATUS_ABORTED:
-            return {
-                'goal_id': goal_id,
-                'status': 'failed',
-                'message': f'Navigation aborted by Nav2 for {target}',
-            }
-        return {
-            'goal_id': goal_id,
-            'status': 'failed',
-            'message': f'Navigation ended with unexpected status={status}',
-        }
+        # Ignore Nav2's BT result and use TF pose as the source of truth.
+        # Nav2 here is unreliable: SIGSEGVs, false successes from stale
+        # localization, and aborts while the autonomy-stack tail keeps the
+        # robot moving. Poll until the body actually arrives, stalls, or
+        # times out.
+        return self._poll_until_arrived(goal_handle, x, y, target, goal_id)
 
     # ------------------------------------------------------------------
     # Async navigate: start_navigate / check_nav_status / cancel_navigate
@@ -463,6 +483,9 @@ class ZMQBridgeNode(Node):
             }
 
         # Store state and return immediately
+        pose0 = self._get_pose_full()
+        d0 = math.hypot(pose0[0] - x, pose0[1] - y) if pose0 else float('inf')
+        t0 = time.time()
         with self._nav_lock:
             self._nav_goal_handle   = goal_handle
             self._nav_goal_id       = goal_id
@@ -470,6 +493,9 @@ class ZMQBridgeNode(Node):
             self._nav_target_desc   = target
             self._nav_target_x      = x
             self._nav_target_y      = y
+            self._nav_t_start       = t0
+            self._nav_last_dist     = d0
+            self._nav_last_prog_t   = t0
 
         self.get_logger().info(f'[{goal_id[:8]}] Navigation started to {target}')
         return {
@@ -479,19 +505,29 @@ class ZMQBridgeNode(Node):
         }
 
     def _handle_check_nav_status(self, goal_id: str) -> dict:
-        """Poll whether the async navigation has finished."""
+        """Poll whether the async navigation has finished.
+
+        TF pose is the source of truth — Nav2's BT result is ignored so we
+        survive aborts and crashes while the autonomy-stack tail is still
+        driving the robot to the goal.
+        """
         with self._nav_lock:
             if self._nav_goal_handle is None:
                 return {'goal_id': goal_id, 'status': 'idle', 'message': 'No active navigation'}
-
-            if not self._nav_result_future.done():
-                return {'goal_id': goal_id, 'status': 'navigating',
-                        'message': f'Still navigating to {self._nav_target_desc}'}
-
-            # Navigation finished — read result and clear state
-            result_msg = self._nav_result_future.result()
             target = self._nav_target_desc
             tx, ty = self._nav_target_x, self._nav_target_y
+            t_start = self._nav_t_start
+
+        pose = self._get_pose_full()
+        now = time.time()
+        if pose is None:
+            return {'goal_id': goal_id, 'status': 'navigating',
+                    'message': f'Still navigating to {target} (TF temporarily unavailable)'}
+
+        dist = math.hypot(pose[0] - tx, pose[1] - ty)
+
+        def _clear_state():
+            self._cancel_goal_safely(self._nav_goal_handle)
             self._nav_goal_handle   = None
             self._nav_goal_id       = None
             self._nav_result_future = None
@@ -499,29 +535,33 @@ class ZMQBridgeNode(Node):
             self._nav_target_x      = 0.0
             self._nav_target_y      = 0.0
 
-        status = result_msg.status
-        if status == GoalStatus.STATUS_SUCCEEDED:
-            arrived, dist = self._verify_arrival(tx, ty)
-            if not arrived:
-                self.get_logger().warn(
-                    f'[{goal_id[:8]}] Nav2 SUCCEEDED but robot is {dist:.2f} m '
-                    f'from {target} (threshold {_ARRIVAL_THRESHOLD_M} m)')
-                return {
-                    'goal_id': goal_id, 'status': 'failed',
-                    'message': (f'Nav2 reported success but robot is {dist:.2f} m '
-                                f'from {target} — likely within goal tolerance of current pose '
-                                f'or stale localization. Not actually arrived.'),
-                }
+        if dist <= _ARRIVAL_THRESHOLD_M:
+            with self._nav_lock:
+                _clear_state()
             return {'goal_id': goal_id, 'status': 'success',
                     'message': f'Arrived at {target} (dist={dist:.2f} m)'}
-        if status == GoalStatus.STATUS_CANCELED:
-            return {'goal_id': goal_id, 'status': 'canceled',
-                    'message': f'Navigation canceled before reaching {target}'}
-        if status == GoalStatus.STATUS_ABORTED:
+
+        with self._nav_lock:
+            if (self._nav_last_dist - dist) >= _NAV_STALL_PROG_M:
+                self._nav_last_prog_t = now
+                self._nav_last_dist   = dist
+            time_since_progress = now - self._nav_last_prog_t
+
+        if (now - t_start) >= _NAV_TIMEOUT:
+            with self._nav_lock:
+                _clear_state()
+            return {'goal_id': goal_id, 'status': 'timeout',
+                    'message': f'Navigation to {target} timed out (last dist={dist:.2f} m)'}
+
+        if time_since_progress >= _NAV_STALL_S:
+            with self._nav_lock:
+                _clear_state()
             return {'goal_id': goal_id, 'status': 'failed',
-                    'message': f'Navigation aborted by Nav2 for {target}'}
-        return {'goal_id': goal_id, 'status': 'failed',
-                'message': f'Navigation ended with unexpected status={status}'}
+                    'message': (f'No progress toward {target} for {_NAV_STALL_S:.0f}s '
+                                f'(last dist={dist:.2f} m)')}
+
+        return {'goal_id': goal_id, 'status': 'navigating',
+                'message': f'Still navigating to {target} (dist={dist:.2f} m)'}
 
     def _handle_cancel_navigate(self, goal_id: str) -> dict:
         """Cancel the active async navigation."""
