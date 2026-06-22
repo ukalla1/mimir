@@ -1,7 +1,0 @@
-TASK: Move a cup with a stirring tool in it to the sink.
-subtask=common_sense episode=episode_36 success=1.0 steps=4
-
-step01: find a Cup                       -> step01_find_a_Cup.png
-step02: pick up the Cup                  -> step02_pick_up_the_Cup.png
-step03: find a Sink                      -> step03_find_a_Sink.png
-step04: put down the object in hand      -> step04_put_down_the_object_in_hand.png

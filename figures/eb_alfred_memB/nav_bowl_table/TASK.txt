@@ -1,7 +1,0 @@
-TASK: Put a bowl on a coffee table.
-base/episode_14
-
-step01: find a Bowl
-step02: pick up the Bowl
-step03: find a CoffeeTable
-step04: put down the object in hand
