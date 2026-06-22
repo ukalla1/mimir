@@ -46,6 +46,7 @@ Replace the `TextEmbedder` with a thin HTTP wrapper that calls llama.cpp's embed
 | `food_text_embeddings.npy` | `nutri_rag/data/embeddings/food_text_embeddings.npy` | ~40 MB | All stages (food text) |
 | `food_fdc_ids.npy` | `nutri_rag/data/embeddings/food_fdc_ids.npy` | small | Alignment for text embeddings |
 | `recipe_text_embeddings.npy` | `nutri_rag/data/embeddings/recipe_text_embeddings.npy` | ~330 MB | Phase D meal composition |
+| `recipe_ids.npy` | `nutri_rag/data/embeddings/recipe_ids.npy` | small | Phase D recipe-row alignment |
 | `nutri_kb.duckdb` | `nutri_graph/data/nutri_kb.duckdb` | varies | Foods / nutrients / recipes / edges |
 | `meal_categories.json` | `nutri_rag/data/meal_categories.json` | small | Phase C meal-category filter |
 | **Python source** | | | |
@@ -106,48 +107,61 @@ pip install -r requirements.jetson.txt
 
 ### Step 2 — Transfer files from dev machine
 
+**Mirror the dev repo layout** so the package-relative path resolvers in `nutri_rag` work
+without any code edits (this is what makes Step 6 a one-liner).
+
 ```bash
 # On dev machine
-mkdir -p stage/nutri-jetson/{embeddings,data,nutri_rag,nutri-atlas}
+mkdir -p stage/nutri-jetson/{nutri_graph/data,nutri_graph/outputs/embeddings,nutri_rag/data/embeddings,nutri-atlas}
 
-# Embeddings + KB
-cp nutri_graph/outputs/embeddings/food_embeddings.npy            stage/nutri-jetson/embeddings/
-cp nutri_graph/outputs/embeddings/node_embeddings.npy            stage/nutri-jetson/embeddings/
-cp nutri_graph/data/nutrient_emb_index.json                      stage/nutri-jetson/embeddings/
-cp nutri_rag/data/embeddings/food_text_embeddings.npy            stage/nutri-jetson/embeddings/
-cp nutri_rag/data/embeddings/food_fdc_ids.npy                    stage/nutri-jetson/embeddings/
-cp nutri_rag/data/embeddings/recipe_text_embeddings.npy          stage/nutri-jetson/embeddings/
-cp nutri_graph/data/nutri_kb.duckdb                              stage/nutri-jetson/data/
-cp nutri_rag/data/meal_categories.json                           stage/nutri-jetson/data/
+# nutri_graph artifacts
+cp nutri_graph/data/nutri_kb.duckdb                              stage/nutri-jetson/nutri_graph/data/
+cp nutri_graph/data/nutrient_emb_index.json                      stage/nutri-jetson/nutri_graph/data/
+cp nutri_graph/outputs/embeddings/food_embeddings.npy            stage/nutri-jetson/nutri_graph/outputs/embeddings/
+cp nutri_graph/outputs/embeddings/node_embeddings.npy            stage/nutri-jetson/nutri_graph/outputs/embeddings/
 
-# Python source
-cp -r nutri_rag/nutri_rag                                        stage/nutri-jetson/
+# nutri_rag artifacts
+cp nutri_rag/data/embeddings/food_text_embeddings.npy            stage/nutri-jetson/nutri_rag/data/embeddings/
+cp nutri_rag/data/embeddings/food_fdc_ids.npy                    stage/nutri-jetson/nutri_rag/data/embeddings/
+cp nutri_rag/data/embeddings/recipe_text_embeddings.npy          stage/nutri-jetson/nutri_rag/data/embeddings/
+cp nutri_rag/data/embeddings/recipe_ids.npy                      stage/nutri-jetson/nutri_rag/data/embeddings/
+cp nutri_rag/data/meal_categories.json                           stage/nutri-jetson/nutri_rag/data/
+
+# Python sources
+cp -r nutri_rag/nutri_rag                                        stage/nutri-jetson/nutri_rag/
 cp -r nutri-atlas/robot_control                                  stage/nutri-jetson/nutri-atlas/
 
 # Ship
 rsync -avz stage/nutri-jetson/ jetson:~/nutri/
 ```
 
-After this the Jetson layout is:
+After this, the Jetson layout matches the dev repo:
 ```
 ~/nutri/
-├── embeddings/
-│   ├── food_embeddings.npy
-│   ├── node_embeddings.npy
-│   ├── nutrient_emb_index.json
-│   ├── food_text_embeddings.npy
-│   ├── food_fdc_ids.npy
-│   └── recipe_text_embeddings.npy
-├── data/
-│   ├── nutri_kb.duckdb
-│   └── meal_categories.json
-├── nutri_rag/                  # python package
+├── nutri_graph/
+│   ├── data/
+│   │   ├── nutri_kb.duckdb
+│   │   └── nutrient_emb_index.json
+│   └── outputs/embeddings/
+│       ├── food_embeddings.npy
+│       └── node_embeddings.npy
+├── nutri_rag/
+│   ├── nutri_rag/                  # python package
+│   └── data/
+│       ├── embeddings/
+│       │   ├── food_text_embeddings.npy
+│       │   ├── food_fdc_ids.npy
+│       │   ├── recipe_text_embeddings.npy
+│       │   └── recipe_ids.npy
+│       └── meal_categories.json
 └── nutri-atlas/
     └── robot_control/
         ├── robot_assistant.py
         ├── tools/
         └── config/landmarks.yaml
 ```
+
+`user_preferences.duckdb` is created automatically at `~/nutri/nutri_rag/user_preferences.duckdb` on first run; no need to ship it.
 
 ### Step 3 — Set up the embedding GGUF (Option B only)
 
@@ -196,24 +210,31 @@ Run as `systemd` services in production — sample units at the bottom.
 
 If you don't need VLM detection, drop the `--mmproj ...` line.
 
-### Step 6 — Patch `nutri_rag/config.py` for Jetson paths
+### Step 6 — `nutri_rag/config.py` — minimal change
 
-Update absolute paths to match the Jetson layout:
+Because Step 2 mirrors the dev repo layout, every existing path constant in
+[`nutri_rag/config.py`](nutri_rag/nutri_rag/config.py) resolves to the right Jetson
+location **automatically** — `_PROJECT_ROOT` and `_NUTRI_GRAPH` are computed from
+the package file location, so `DB_PATH`, `FOOD_EMBEDDINGS_PATH`,
+`TEXT_EMBEDDINGS_PATH`, `TEXT_FDC_IDS_PATH`, `RECIPE_TEXT_EMBEDDINGS_PATH`,
+`RECIPE_IDS_PATH`, `NODE_EMBEDDINGS_PATH`, and `USER_DB_PATH` all point at
+`~/nutri/...` without any edit.
+
+The Phase C/D loaders that don't read from `config.py` —
+`target_encoder.py`'s `nutrient_emb_index.json` resolver and
+`food_recommender.py`'s `meal_categories.json` resolver — also resolve correctly,
+because they walk up from the package file location and find the expected
+`nutri_graph/data/` and `nutri_rag/data/` siblings.
+
+**The only change needed** is adding the embedding endpoint for Option B:
 
 ```python
-# nutri_rag/config.py — Jetson values
-DB_PATH                  = "/home/jetson/nutri/data/nutri_kb.duckdb"
-FOOD_EMBEDDINGS_PATH     = "/home/jetson/nutri/embeddings/food_embeddings.npy"
-TEXT_EMBEDDINGS_PATH     = "/home/jetson/nutri/embeddings/food_text_embeddings.npy"
-TEXT_FDC_IDS_PATH        = "/home/jetson/nutri/embeddings/food_fdc_ids.npy"
-RECIPE_TEXT_EMB_PATH     = "/home/jetson/nutri/embeddings/recipe_text_embeddings.npy"
-NODE_EMBEDDINGS_PATH     = "/home/jetson/nutri/embeddings/node_embeddings.npy"
-NUTRIENT_EMB_INDEX_PATH  = "/home/jetson/nutri/embeddings/nutrient_emb_index.json"
-MEAL_CATEGORIES_PATH     = "/home/jetson/nutri/data/meal_categories.json"
-
-LLM_BASE_URL             = "http://localhost:8080/v1"
-EMBEDDING_BASE_URL       = "http://localhost:8081/embedding"   # Option B only
+# Append at the bottom of nutri_rag/config.py for Option B
+EMBEDDING_BASE_URL = "http://localhost:8081/embedding"
 ```
+
+`LLM_BASE_URL` already points at `http://localhost:8080/v1/chat/completions` —
+no edit needed if you started the chat server on port 8080 per Step 5.
 
 ### Step 7 — Replace `TextEmbedder` (Option B only)
 
@@ -369,10 +390,10 @@ curl -s http://localhost:8080/v1/chat/completions \
 # 3. Embeddings + DB load cleanly
 python -c "
 import numpy as np, duckdb
-f = np.load('/home/jetson/nutri/embeddings/food_text_embeddings.npy')
-g = np.load('/home/jetson/nutri/embeddings/food_embeddings.npy')
-r = np.load('/home/jetson/nutri/embeddings/recipe_text_embeddings.npy', mmap_mode='r')
-con = duckdb.connect('/home/jetson/nutri/data/nutri_kb.duckdb', read_only=True)
+f = np.load('/home/jetson/nutri/nutri_rag/data/embeddings/food_text_embeddings.npy')
+g = np.load('/home/jetson/nutri/nutri_graph/outputs/embeddings/food_embeddings.npy')
+r = np.load('/home/jetson/nutri/nutri_rag/data/embeddings/recipe_text_embeddings.npy', mmap_mode='r')
+con = duckdb.connect('/home/jetson/nutri/nutri_graph/data/nutri_kb.duckdb', read_only=True)
 nrec = con.execute('SELECT COUNT(*) FROM nodes_recipe').fetchone()[0]
 print(f'food_text {f.shape}, food_gat {g.shape}, recipe_text {r.shape}, n_recipes {nrec}')
 "
