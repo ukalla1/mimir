@@ -20,6 +20,9 @@ DEFAULT_TARGETS = {
 _SYSTEM_PROMPT = (
     "You are a nutrition analyst. Analyze the user's meal history and "
     "determine what macronutrients are missing for their next meal. "
+    "If a chronic health condition is provided, make the macro target "
+    "clinically appropriate for it (e.g. lower carbohydrate for diabetes, "
+    "lower sodium-heavy foods for hypertension). "
     "Return your analysis as JSON in this exact format:\n"
     '{"reasoning": "<your analysis>", '
     '"targets": {"protein_g": <number>, "fat_g": <number>, '
@@ -69,12 +72,16 @@ def _format_meal_history(
 def analyze_gap(
     meal_items: list[dict],
     next_meal: str = "lunch",
+    health_condition: str | None = None,
 ) -> dict:
     """Analyze nutritional gaps and return target macros for the next meal.
 
     Args:
         meal_items: List of dicts with description, nutrients, quantity, meal_type.
         next_meal: What meal to recommend for (breakfast/lunch/dinner).
+        health_condition: Optional chronic condition (e.g. "Diabetes",
+            "Hypertension") that should shape the macro target direction
+            (diabetes -> lower carbohydrate, etc.). None = condition-agnostic.
 
     Returns:
         dict with "reasoning" (str) and "targets" (dict with protein_g, fat_g,
@@ -82,9 +89,19 @@ def analyze_gap(
     """
     history_text = _format_meal_history(meal_items)
 
+    condition_text = ""
+    if health_condition and health_condition.strip().lower() not in ("none", ""):
+        condition_text = (
+            f"\nThe user has the following chronic condition: {health_condition}. "
+            f"Tailor the macro target to be clinically appropriate for it "
+            f"(e.g. reduce carbohydrate for diabetes, reduce sodium-driving "
+            f"foods for hypertension, moderate calories for obesity).\n"
+        )
+
     user_msg = (
         f"The user has eaten the following today:\n"
-        f"{history_text}\n\n"
+        f"{history_text}\n"
+        f"{condition_text}\n"
         f"Analyze the nutritional balance and recommend target macros "
         f"for their next meal ({next_meal}).\n\n"
         f"Return your analysis as JSON:\n"

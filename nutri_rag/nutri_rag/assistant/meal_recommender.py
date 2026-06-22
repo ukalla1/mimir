@@ -124,6 +124,30 @@ def _macros_in_range(
     return True
 
 
+def _macro_match_score(context: dict, targets: dict[str, float] | None) -> float:
+    """Soft closeness of a recipe's per-serving macros to the targets, in [0, 1].
+
+    1.0 = exact match; decays linearly with relative deviation. Averaged over
+    carbohydrate, protein, and fat so it pulls retrieval toward the clinical
+    macro direction (e.g. a low-carb target favours low-carb recipes).
+    """
+    if not targets:
+        return 0.0
+    pairs = [
+        ("carbohydrates", "carb_g"),
+        ("protein", "protein_g"),
+        ("fat_total", "fat_g"),
+    ]
+    scores = []
+    for ctx_key, target_key in pairs:
+        t = float(targets.get(target_key, 0) or 0)
+        if t <= 0:
+            continue
+        v = float(context.get(ctx_key) or 0)
+        scores.append(1.0 - min(abs(v - t) / t, 1.0))
+    return sum(scores) / len(scores) if scores else 0.0
+
+
 @dataclass
 class MealOption:
     """A meal candidate returned by MealRecommender."""
@@ -349,6 +373,7 @@ class MealRecommender:
         beta: float = DEFAULT_MEAL_BETA,
         top_k_candidates: int = DEFAULT_MEAL_TOP_K_CANDIDATES,
         top_k_final: int = DEFAULT_MEAL_TOP_K_FINAL,
+        macro_weight: float = 0.0,
     ) -> list[MealOption]:
         """Embedding-first recipe retrieval with hard requirement filters.
 
@@ -456,12 +481,16 @@ class MealRecommender:
         if not struct_rows:
             return []
 
-        # Step 5: re-rank survivors with structured terms (soft scoring)
+        # Step 5: re-rank survivors with structured terms (soft scoring).
+        # macro_weight>0 (opt-in) pulls recipes toward the target macro direction
+        # so the clinical target (e.g. low-carb for diabetes) actually shapes the
+        # pick rather than being only a hard filter that the cascade can relax.
         for sr in struct_rows:
             sr["final_score"] = (
                 sr["embed_score"]
                 + gamma * sr["overlap_ratio"]
                 - beta * (sr["missing_count"] / max(max_missing, 1))
+                + macro_weight * _macro_match_score(sr["context"], targets)
             )
 
         struct_rows.sort(key=lambda r: r["final_score"], reverse=True)

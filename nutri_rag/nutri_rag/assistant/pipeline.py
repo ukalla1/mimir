@@ -119,6 +119,8 @@ class NutriAssistant:
         next_meal: str = "lunch",
         user_id: str = "default",
         available_fdc_ids: set[int] | None = None,
+        health_condition: str | None = None,
+        constraints: dict | None = None,
     ) -> str:
         """Generate a personalized meal recommendation.
 
@@ -132,6 +134,12 @@ class NutriAssistant:
             available_fdc_ids: Optional hard availability filter applied to
                 both seeds and expanded neighbors. None = no filter (current
                 behavior). Phase B addition.
+            health_condition: Optional chronic condition shaping the gap-analysis
+                macro target (LLM Call 1). See gap_analyzer.analyze_gap.
+            constraints: Optional user constraint/preference profile (P_user)
+                applied at retrieval (Stage 4), with key:
+                  - "disliked_ingredients": list[str] (allergies/restrictions,
+                    hard-excluded from recipes)
 
         Returns:
             Natural language meal recommendation string.
@@ -147,8 +155,10 @@ class NutriAssistant:
             return ("I couldn't identify any foods from your description. "
                     "Could you describe what you ate more specifically?")
 
-        # Step 3: LLM Call 1 — Gap analysis
-        gap_result = analyze_gap(meal_history, next_meal=next_meal)
+        # Step 3: LLM Call 1 — Gap analysis (health condition shapes the target)
+        gap_result = analyze_gap(
+            meal_history, next_meal=next_meal, health_condition=health_condition
+        )
         reasoning = gap_result["reasoning"]
         targets = gap_result["targets"]
 
@@ -207,13 +217,17 @@ class NutriAssistant:
                 # users can repeat what they ate). PreferenceDB exposes these
                 # as USDA-style descriptions; MealRecommender matches them by
                 # substring against recipe ingredient strings.
-                disliked = pref_summary.get("disliked", []) if pref_summary else None
+                disliked = list(pref_summary.get("disliked", [])) if pref_summary else []
+                # Merge in explicit user constraints (P_user): allergies /
+                # dietary restrictions become hard-excluded ingredients.
+                if constraints:
+                    disliked = disliked + list(constraints.get("disliked_ingredients", []))
                 meal_candidates = self._get_meal_recommender().recommend_meal(
                     recommended_foods=ranked_options[:10],
                     targets=targets,
                     available_fdc_ids=available_fdc_ids,
                     next_meal=next_meal,
-                    disliked_names=disliked,
+                    disliked_names=disliked or None,
                 )
             except Exception as e:
                 # Graceful degradation: log and continue with food-only output
