@@ -17,21 +17,36 @@ The GAT model is **not** loaded — only precomputed embedding `.npy` files are 
 
 ## Two embedding-runtime options
 
-### Option A — PyTorch-based `TextEmbedder` on Jetson
+### Option A — PyTorch-based `TextEmbedder` on Jetson (recommended for Orin AGX)
 
-Run the same `TextEmbedder` class as the dev box. Simplest port; just `pip install` and go.
+Run the same `TextEmbedder` class as the dev box. Loads the Qwen3-Embedding-0.6B
+HF model directly into Python via `transformers` — no second server, no GGUF.
 
-- **Pros**: zero code changes to `embedding.py` / `search.py`
-- **Cons**: ~5 GB of PyTorch + transformers + ARM64 wheels; slower cold start
+- **Pros**: zero code changes to `embedding.py` / `search.py`; same runtime as dev; no GGUF conversion needed
+- **Cons**: ~5 GB of PyTorch + transformers + ARM64 wheels; slower cold start (~15 s); needs NVIDIA's JetPack PyTorch wheels
 
-### Option B — Lean port via llama.cpp `/embedding` (recommended)
+### Option B — Lean port via llama.cpp `/embedding`
 
 Replace the `TextEmbedder` with a thin HTTP wrapper that calls llama.cpp's embedding endpoint. No PyTorch on Jetson.
 
 - **Pros**: ~50 MB Python deps; one inference runtime (llama.cpp) for chat + embedding [+ vision]; faster startup
-- **Cons**: requires Qwen3-Embedding-0.6B as GGUF; small `embedding.py` patch
+- **Cons**: requires Qwen3-Embedding-0.6B as GGUF (a conversion step); small `embedding.py` patch; a second llama-server on port 8081 competing for GPU
 
-**Recommendation: Option B.** All instructions below assume B unless otherwise marked.
+**Recommendation: Option A on Orin AGX (has RAM/disk for PyTorch). Option B only if you need a leaner runtime — e.g. on smaller Jetson variants.**
+
+The remaining steps cover both. Blocks tagged **_(Option B only)_** are safe to skip if you go Option A. Quick reference:
+
+| Step | Option A | Option B |
+|---|---|---|
+| 1 — Python env | yes (use the Option-A `requirements.jetson.txt`) | yes (lean list) |
+| 2 — File transfer | yes | yes |
+| 3 — Convert embedding GGUF | **skip** | yes |
+| 4 — Chat + VLM GGUFs | yes | yes |
+| 5 — llama.cpp servers | chat server only | chat + embedding servers |
+| 6 — `config.py` change | **none needed** | append `EMBEDDING_BASE_URL` |
+| 7 — Replace `TextEmbedder` | **skip** | yes |
+| 8 — Robot connectivity | yes | yes |
+| 9 — Launch | yes | yes |
 
 ---
 
@@ -163,7 +178,7 @@ After this, the Jetson layout matches the dev repo:
 
 `user_preferences.duckdb` is created automatically at `~/nutri/nutri_rag/user_preferences.duckdb` on first run; no need to ship it.
 
-### Step 3 — Set up the embedding GGUF (Option B only)
+### Step 3 — Set up the embedding GGUF  _(Option B only — skip for Option A)_
 
 ```bash
 # On Jetson — convert Qwen3-Embedding-0.6B to GGUF
@@ -190,15 +205,21 @@ huggingface-cli download unsloth/Qwen3.5-9B-GGUF \
 
 ### Step 5 — Start llama.cpp servers
 
+**Chat server on :8080 — always required:**
+
 ```bash
-# Chat server on :8080 (loads chat model + vision adapter)
 ~/llama.cpp/llama-server \
     -m ~/models/Qwen3.5-9B-GGUF/Qwen3.5-9B-UD-Q4_K_XL.gguf \
     --mmproj ~/models/Qwen3.5-9B-GGUF/mmproj-BF16.gguf \
     --port 8080 --host 0.0.0.0 \
     --n-gpu-layers 999 -c 32768 &
+```
 
-# Embedding server on :8081
+If you don't need VLM detection, drop the `--mmproj ...` line.
+
+**Embedding server on :8081 — _(Option B only)_:**
+
+```bash
 ~/llama.cpp/llama-server \
     -m ~/models/qwen3-embedding-0.6b.gguf \
     --embedding --pooling last \
@@ -206,9 +227,20 @@ huggingface-cli download unsloth/Qwen3.5-9B-GGUF \
     --n-gpu-layers 999 &
 ```
 
-Run as `systemd` services in production — sample units at the bottom.
+For **Option A**, no second server runs — `TextEmbedder` loads
+Qwen3-Embedding-0.6B in-process from the HF cache. Make sure the model is
+populated on the Jetson before the first run:
 
-If you don't need VLM detection, drop the `--mmproj ...` line.
+```bash
+# Either rsync the cache from your dev box:
+rsync -avz vega:~/.cache/huggingface/hub/models--Qwen--Qwen3-Embedding-0.6B \
+    ~/.cache/huggingface/hub/
+
+# OR download fresh on the Jetson:
+huggingface-cli download Qwen/Qwen3-Embedding-0.6B
+```
+
+Run llama-server as `systemd` services in production — sample unit at the bottom.
 
 ### Step 6 — `nutri_rag/config.py` — minimal change
 
@@ -226,17 +258,19 @@ The Phase C/D loaders that don't read from `config.py` —
 because they walk up from the package file location and find the expected
 `nutri_graph/data/` and `nutri_rag/data/` siblings.
 
-**The only change needed** is adding the embedding endpoint for Option B:
+**Option A: no edit needed at all.** Skip the rest of this step.
+
+**Option B only** — append the embedding endpoint at the bottom of
+`nutri_rag/config.py`:
 
 ```python
-# Append at the bottom of nutri_rag/config.py for Option B
 EMBEDDING_BASE_URL = "http://localhost:8081/embedding"
 ```
 
 `LLM_BASE_URL` already points at `http://localhost:8080/v1/chat/completions` —
 no edit needed if you started the chat server on port 8080 per Step 5.
 
-### Step 7 — Replace `TextEmbedder` (Option B only)
+### Step 7 — Replace `TextEmbedder`  _(Option B only — skip for Option A)_
 
 In `nutri_rag/embedding.py`, swap the PyTorch class for an HTTP wrapper that keeps the same interface so `search.py` and the pipeline don't need changes:
 
@@ -375,7 +409,15 @@ export MEAL_COMPOSE_MODE=on
 Run these in order. Stop at the first failure.
 
 ```bash
-# 1. Embedding GGUF reachable
+# 1a. Embedding reachable — Option A (in-process PyTorch)
+python -c "
+from nutri_rag.embedding import TextEmbedder
+v = TextEmbedder().encode(['apple'])
+print('dim', v.shape[-1])
+"
+# expect: dim 1024
+
+# 1b. Embedding reachable — Option B (llama.cpp /embedding server)
 curl -s http://localhost:8081/embedding \
     -H "Content-Type: application/json" \
     -d '{"content":"apple"}' | python -c "import sys,json;e=json.load(sys.stdin)['embedding'];print('dim',len(e))"
@@ -449,11 +491,13 @@ User=jetson
 WantedBy=multi-user.target
 ```
 
-`/etc/systemd/system/llama-embed.service` — same pattern, port 8081, no mmproj, `--embedding --pooling last`.
+`/etc/systemd/system/llama-embed.service` — _(Option B only)_ same pattern, port 8081, no mmproj, `--embedding --pooling last`.
 
 ```bash
 sudo systemctl daemon-reload
-sudo systemctl enable --now llama-chat llama-embed
+sudo systemctl enable --now llama-chat
+# Option B only:
+sudo systemctl enable --now llama-embed
 ```
 
 The assistant itself is interactive (stdin loop), so don't `systemd` that — launch from a terminal.
