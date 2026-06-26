@@ -347,7 +347,7 @@ export MEAL_COMPOSE_MODE=on             # Phase D — adds recipes to recommenda
 export RECIPE_SCORE_MODE=hybrid         # Phase D Gap 1 — default
 
 python robot_assistant.py \
-    --robot-ip <robot_wifi_ip> --robot-port 5555 \
+    --robot-ip 192.168.0.164 --robot-port 5555 \
     --detection-mode real --detector vlm
 ```
 
@@ -355,7 +355,7 @@ For YOLO detection instead of VLM (faster, COCO 80 classes only):
 
 ```bash
 python robot_assistant.py \
-    --robot-ip <robot_wifi_ip> --robot-port 5555 \
+    --robot-ip 192.168.0.164--robot-port 5555 \
     --detection-mode real --detector yolo
 
 # In a second Jetson terminal — run the YOLO push loop

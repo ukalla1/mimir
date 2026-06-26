@@ -131,9 +131,14 @@ class YOLODetector:
 # VLM grounding detector (drop-in replacement for YOLODetector)
 # ---------------------------------------------------------------------------
 _VLM_GROUNDING_PROMPT = (
-    'Detect all objects in this image. For each object, output exactly:\n'
-    '<ref>label</ref><box>(x1, y1, x2, y2)</box>\n'
-    'where coordinates are in [0, 1000] normalized range.\n'
+    'Detect all food items, dishes, utensils, and household objects in this image. '
+    'For each object, output exactly:\n'
+    '<ref>specific_label</ref><box>(x1, y1, x2, y2)</box>\n'
+    'Use SPECIFIC labels — name the food or object (e.g. "bread", "carrot", '
+    '"avocado", "cup", "plate"). Do NOT use generic labels like "toy", "object", '
+    'or "item" even if the items look like plastic models. Identify them by what '
+    'food/object they represent.\n'
+    'Coordinates are in [0, 1000] normalized range.\n'
     'Output ONLY the detection lines, nothing else.'
 )
 

@@ -136,9 +136,27 @@ def approach_a(color_path: str, depth: np.ndarray):
 
     b64 = _encode_image(color_path)
     prompt = (
-        'Detect all objects in this image. For each object, output exactly:\n'
-        '<ref>label</ref><box>(x1, y1, x2, y2)</box>\n'
-        'where coordinates are in [0, 1000] normalized range.\n'
+        'Detect every visible object in this image — including food items, drinks, '
+        'appliances, furniture, containers, people, signs, fixtures, and any other '
+        'distinct items. Be thorough; do not skip an object just because it is in '
+        'the background.\n'
+        'For each object, output exactly:\n'
+        '<ref>specific_label</ref><box>(x1, y1, x2, y2)</box>\n'
+        'Use SPECIFIC labels — name what each object actually is. Examples:\n'
+        '  - Food: "bread", "carrot", "avocado", "orange", "apple", "peanut butter", '
+        '"lettuce", "chicken" (NEVER just "food")\n'
+        '  - Drinks: "water bottle", "sprite can", "coca cola", "orange juice", '
+        '"milk carton", "wine glass", "coffee mug" (NEVER just "drink" or just "bottle"/"can" — '
+        'include the contents or brand when visible)\n'
+        '  - Appliances: "microwave", "coffee maker", "toaster", "blender"\n'
+        '  - Furniture/fixtures: "drawer", "cupboard", "door", "handle", '
+        '"fire extinguisher"\n'
+        '  - People: "mannequin", "person"\n'
+        'NEVER use generic labels: "food", "drink", "object", "item", "toy", "thing". '
+        'If you are uncertain about a specific food or drink, identify it by color, '
+        'shape, or container type (e.g. "round red fruit", "leafy green vegetable", '
+        '"clear bottle with green label") instead of "food" or "drink".\n'
+        'Coordinates are in [0, 1000] normalized range.\n'
         'Output ONLY the detection lines, nothing else.'
     )
 
@@ -152,7 +170,7 @@ def approach_a(color_path: str, depth: np.ndarray):
     results = []
     seen = set()
 
-    for match in re.finditer(r'<ref>(.*?)</ref>\s*<box>(.*?)</box>', response):
+    for match in re.finditer(r'<ref>(.*?)</ref>\s*<box>(.*?)(?:</box>|$)', response, re.MULTILINE):
         label = match.group(1).strip()
         box_str = match.group(2)
         for coords in re.findall(r'\((\d+),\s*(\d+),\s*(\d+),\s*(\d+)\)', box_str):

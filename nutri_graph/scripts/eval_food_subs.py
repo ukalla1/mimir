@@ -130,6 +130,9 @@ def _compute_metrics(ranks_per_query: list[list[int]]) -> dict:
         sorted_ranks = sorted(ranks)
         precisions   = [(i + 1) / r for i, r in enumerate(sorted_ranks)]
         maps.append(float(np.mean(precisions)))
+        # RR@k matches Loesch et al.'s implementation (3_Evaluate_Model.ipynb):
+        # a query counts as a hit when its best substitute (min_rank) is in
+        # the top-k, i.e. Hit@k / Success@k.
         rr5s.append(1 if min_rank <= 5 else 0)
         rr10s.append(1 if min_rank <= 10 else 0)
     return {
